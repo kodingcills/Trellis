@@ -1,0 +1,16 @@
+[package]
+name = "trellis-core"
+description = "Trellis domain model and invariants: artifacts, derivations, projections, snapshots, validation attestations."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+# trellis-core depends on almost nothing (spec §73). M0 is std-only;
+# hashing (BLAKE3) arrives with M1 behind these same types.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
