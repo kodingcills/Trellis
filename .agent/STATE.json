@@ -3,10 +3,9 @@
   "updated_at": "2026-09-08",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-
-  "current_green_commit": "7996c1b7d8b7b10275204542ff7f2dc3f6358964",
-  "current_green_commit_subject": "test(bench): add synthetic invalidation oracle fixture (M2)",
-  "current_green_commit_note": "M2 green checkpoint. Product crates (trellis-core/source) untouched since 1ad8aa2; oracle fixture + catalog + integrity crate added. GLOBAL_GREEN re-verified at this checkpoint (73 tests, clippy -D warnings, fmt; fixture unittest 18 OK).",
+  "current_green_commit": "173f5a09af25c90c497159e094a886c558132790",
+  "current_green_commit_subject": "feat(program): add deterministic Python syntax projections (M3)",
+  "current_green_commit_note": "M3 green checkpoint. Product crates trellis-core/trellis-oracle untouched; trellis-program added; trellis-source extended (read_tree, __pycache__ excludes). GLOBAL_GREEN re-verified at this checkpoint (95 tests, clippy -D warnings, fmt; fixture unittest 18 OK).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-08",
     "GLOBAL_GREEN": {
@@ -18,52 +17,46 @@
       "M1_RECONCILE_ACCEPTANCE": "pass — criteria mapped to test names in run log"
     }
   },
-
   "completed_nodes": [
     "M0",
     "M1",
-    "M2"
+    "M2",
+    "M3"
   ],
   "active_nodes": [],
   "blocked_nodes": [],
   "next_candidates": [
-    "M3",
     "M4"
   ],
-  "next_candidates_note": "M3 (program projections) is next per spec §33 ordering; M4 (persistence) also unblocked and parallelizable (disjoint write sets: trellis-program vs trellis-store). Both feed M5.",
-
+  "next_candidates_note": "M4 (persistence) is the sole unblocked node: M5 depends on [M3, M4] and M3 is complete; M6 depends on M2+M5. Follow repository truth: M4 next.",
   "known_architecture_conflicts": [],
-
   "last_review": {
-    "node": "M2",
-    "kind": "2 fresh adversarial review cycles: cycle 1 REPAIR_REQUIRED (artifact-consequence enumeration IMPORTANT; 0 BLOCKER; oracle-contamination audit PASS on all 7 questions) -> cycle 2 GREEN / COMMIT_ALLOWED",
+    "node": "M3",
+    "kind": "3 fresh adversarial review cycles: cycle 1 REPAIR_REQUIRED (3 BLOCKER + 2 IMPORTANT) -> cycle 2 REPAIR_REQUIRED (1 IMPORTANT) -> cycle 3 GREEN / COMMIT_ALLOWED",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-08-M2-cycle2.md (cycle 1: 2026-09-08-M2-cycle1.md)",
+    "record": ".agent/reviews/2026-09-08-M3-cycle3.md (cycles 1-2 linked therein)",
     "open_findings": [],
-    "dispositioned": "2 OPTIONAL from cycle 2 -> BACKLOG (README count fix deferred to keep authorized state exact; STATE sync done at checkpoint). Cycle-1 OPTIONALs -> BACKLOG or corrected in-batch.",
+    "dispositioned": "5 OPTIONAL -> BACKLOG; contract amendment (semantic = explicit UNSUPPORTED; ProjectionObservation -> M5) recorded in DECISIONS per owner directive",
     "deviation_note": "None."
   },
-
   "last_gate_result": {
     "ran_at": "2026-09-08",
-    "gate": "GLOBAL_GREEN + M2_ORACLE_REVIEW",
+    "gate": "GLOBAL_GREEN + M3_QUERY_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "73 passed / 0 failed (39 core + 14 oracle + 20 source)",
+      "tests": "95 passed / 0 failed (39 core + 14 oracle + 22 program + 20 source)",
       "clippy": "clean at -D warnings",
       "fmt": "clean",
       "fixture_unittest": "18 passed, OK (baseline fixture)"
     }
   },
-
   "terminal_state": {
     "v0_1_complete": false,
     "condition": "All ROADMAP nodes completed with evidence; frozen DoD (spec §32) satisfied; zero BLOCKER findings; repo clean and reproducible. Then emit V0_1_COMPLETE and stop."
   },
-
   "hygiene_notes": [
     "HARDENING (owner directive): control plane + AGENTS.md + frozen spec are version-controlled; spec canonical path is docs/architecture/TRELLIS_V0_1_FROZEN.md (single authoritative copy).",
     "Superseded owner decision: `.agent/` was gitignored during bootstrap; reversal recorded in DECISIONS.",
-    "origin/main currently at 1ad8aa2 (M1 push recorded as resolved incident); further pushes require standing human permission per REMOTE_POLICY."
+    "origin/main at 2ea7636; commits 7996c1b (M2) onward are local until push is authorized per REMOTE_POLICY."
   ]
 }
