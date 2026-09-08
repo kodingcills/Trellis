@@ -4,9 +4,9 @@
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
 
-  "current_green_commit": "1ad8aa2cb416687f2541f484701f0aac6e8fd495",
-  "current_green_commit_subject": "feat(source): deterministic manifests, lazy reconcile, BLAKE3 identities (M1)",
-  "current_green_commit_note": "Last code-green checkpoint. The harness-hardening checkpoint is recorded in last_gate_result.hardening_checkpoint once committed; harness edits are control-plane only and do not touch product code.",
+  "current_green_commit": "c4b1fcb629236b3be24359f032a2b6ab4d6ce5c4",
+  "current_green_commit_subject": "chore(agent): harden autonomous engineering control loop",
+  "current_green_commit_note": "Control-plane-only hardening checkpoint authorized by fresh review cycle 3 (COMMIT_ALLOWED, see .agent/reviews/2026-09-08-HARDENING-cycle3-authorization.md). Product code unchanged since 1ad8aa2 (M1); GLOBAL_GREEN re-verified at this checkpoint (59 tests, clippy -D warnings, fmt).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-08",
     "GLOBAL_GREEN": {
@@ -34,13 +34,13 @@
   "known_architecture_conflicts": [],
 
   "last_review": {
-    "node": "M1",
-    "kind": "fresh adversarial subagent review + mechanical repair verification",
+    "node": "HARDENING (control plane; no active ROADMAP node)",
+    "kind": "3 fresh adversarial review cycles: REPAIR_REQUIRED x2 (M1 verdict-line erratum; review-provenance gap) -> GREEN / COMMIT_ALLOWED",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-08-M1-fresh-adversarial.md",
+    "record": ".agent/reviews/2026-09-08-HARDENING-cycle3-authorization.md (cycles 1-2 linked therein)",
     "open_findings": [],
-    "dispositioned": "3 OPTIONAL → BACKLOG; 2 OPTIONAL corrected minimally (acceptance wording, doc guard)",
-    "deviation_note": "Repair re-verification subagent was cancelled; mechanical verification substituted and recorded in run log."
+    "dispositioned": "2 OPTIONAL recorded in cycle-3 record (cycle-3 filename resolution done at commit; M1 review_closure enforcement scoped to future hygiene gate)",
+    "deviation_note": "None this iteration. The M1 REVIEW_INCOMPLETE deviation is closed as a recorded incident under pre-hardening rules (DECISIONS)."
   },
 
   "last_gate_result": {
