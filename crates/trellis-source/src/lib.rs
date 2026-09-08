@@ -23,6 +23,8 @@ pub mod reconcile;
 pub mod prelude {
     pub use crate::environment::EnvironmentFingerprint;
     pub use crate::freeze::freeze;
-    pub use crate::manifest::{build_manifest, Manifest, ManifestEntry, ManifestOptions};
+    pub use crate::manifest::{
+        build_manifest, read_tree, Manifest, ManifestEntry, ManifestOptions,
+    };
     pub use crate::reconcile::{reconcile, reconcile_against_working_tree, ChangedSet};
 }

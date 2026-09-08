@@ -31,6 +31,19 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M3_QUERY_ACCEPTANCE:
+    criteria:
+      - deterministic index/projection results across repeated runs and traversal orders
+      - module/class/function/method identity correct on the M2 fixture (never mutating oracle labels)
+      - normalized signatures: params incl. pos-only/kw-only/*args/**kwargs, annotations; formatting-insensitive; true signature change alters value
+      - imports/aliases represented syntactically
+      - malformed Python yields explicit ParseStatus, never silent omission; failed-parse units degrade queries to UNSUPPORTED, never partial Proven results
+      - semantic cross-file projections (references/callers/implementations/subclasses) return explicit UNSUPPORTED, never an authoritative empty set
+      - changed_symbols maps a reconcile changed-file set to affected symbols; failed-parse units in the set degrade the answer to UNSUPPORTED
+      - file-digest projection is content-derived and deterministic
+      - no tree-sitter/SCIP types in backend-independent contracts; trellis-core stays std-only
+      - source state consumed through M1 abstractions (no second filesystem model)
+    evidence_required: run log with test names + fresh review record
   M2_ORACLE_REVIEW:
     criteria:
       - oracle independence verified by a fresh reviewer: no label derived from Trellis machinery or the future engine (BLOCKER if violated)

@@ -1,5 +1,6 @@
 //! Working-tree manifests — one version of the tracked file state (spec §6).
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -10,7 +11,14 @@ use trellis_core::ids::{ContentHash, ContentHasher, HashAlgo, ManifestId};
 /// Directory names excluded from manifest walks, at any depth. These are
 /// build/VCS/control-plane artifacts, never repository source. Overridable
 /// via [`ManifestOptions`].
-pub const DEFAULT_EXCLUDE_DIRS: &[&str] = &[".git", ".agent", ".trellis", "target", "node_modules"];
+pub const DEFAULT_EXCLUDE_DIRS: &[&str] = &[
+    ".git",
+    ".agent",
+    ".trellis",
+    "target",
+    "node_modules",
+    "__pycache__",
+];
 
 /// Options for building a working-tree manifest.
 #[derive(Debug, Clone)]
@@ -219,6 +227,37 @@ fn hash_file(path: &Path) -> io::Result<ContentHash> {
     Ok(hasher.finish())
 }
 
+/// Read the eligible files of the working tree into a path→content map
+/// (paths relative to the root, `/`-separated, canonical form).
+///
+/// This is the M1-owned way for later layers (e.g. `trellis-program`) to
+/// obtain reconciled source contents: repository identity remains the
+/// manifest/reconcile model of this crate — consumers must never re-scan
+/// the filesystem with their own logic. Non-UTF-8 files are a hard error
+/// (`FileUnreadable`), consistent with the fail-loud policy for
+/// non-canonical paths (spec §2.1; such files cannot participate in
+/// canonical identities).
+pub fn read_tree(options: &ManifestOptions) -> Result<BTreeMap<String, String>, ManifestError> {
+    if !options.root.is_dir() {
+        return Err(ManifestError::RootUnreadable(
+            options.root.clone(),
+            io::Error::new(io::ErrorKind::NotFound, "not a directory"),
+        ));
+    }
+    let mut files: Vec<PathBuf> = Vec::new();
+    collect_files(&options.root, &options.exclude_dirs, &mut files)
+        .map_err(|(path, e)| ManifestError::FileUnreadable(path, e))?;
+    let mut tree = std::collections::BTreeMap::new();
+    for file in &files {
+        let rel = normalize_rel_path(file.strip_prefix(&options.root).unwrap_or(file))
+            .ok_or_else(|| ManifestError::NonCanonicalPath(file.display().to_string()))?;
+        let content =
+            fs::read_to_string(file).map_err(|e| ManifestError::FileUnreadable(file.clone(), e))?;
+        tree.insert(rel, content);
+    }
+    Ok(tree)
+}
+
 /// Adapt [`ContentHasher::update`] to `io::Write` for [`io::copy`].
 struct HasherWriter<'a>(&'a mut ContentHasher);
 
@@ -288,10 +327,22 @@ mod tests {
         write_file(dir.path(), "target/artifact.bin", b"junk");
         write_file(dir.path(), ".git/HEAD", b"ref: refs/heads/main");
         write_file(dir.path(), "nested/target/junk2.bin", b"junk2");
+        // Python bytecode caches are build artifacts (and .pyc is often
+        // non-UTF-8): they must never enter manifests or read_tree.
+        write_file(
+            dir.path(),
+            "src/__pycache__/mod.cpython-311.pyc",
+            b"\x00\x81junk",
+        );
 
         let m = build_manifest(&ManifestOptions::new(dir.path())).unwrap();
         let paths: Vec<&str> = m.entries().iter().map(|e| e.path.as_str()).collect();
         assert_eq!(paths, vec!["src/real.py"]);
+
+        // read_tree (M1 content access) honors the same exclusion.
+        let tree = read_tree(&ManifestOptions::new(dir.path())).unwrap();
+        assert_eq!(tree.len(), 1);
+        assert!(tree.contains_key("src/real.py"));
     }
 
     #[test]

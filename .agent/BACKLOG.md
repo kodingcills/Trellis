@@ -32,3 +32,10 @@ Format: one line per item, tagged with the frozen-spec trigger that would justif
 - X1 alias-caller textual cross-check: add a `refresh_token(`-scan test for the X1 mutated tree, analogous to the R2/R3 caller test (M2 review cycle 1, OPTIONAL).
 - Mutated-tree unittest execution harness: baseline-only unittest runs today; running the fixture suite under mutated trees belongs to the benchmark harness (M2 review cycle 1, OUT_OF_SCOPE for M2).
 - fixtures/python_auth/README.md module count says "34"; actual/declared count is 35 — one-word fix in a future commit (M2 review cycle 2, OPTIONAL; deferred to keep the COMMIT_ALLOWED candidate state exact).
+- `Answer::proven()` escape-hatch hardening: `proven().unwrap_or_default()` can collapse Unsupported to an empty set at call sites; consider an `expect_proven(context)` consuming API (M3 review cycle 1, OPTIONAL).
+- `PythonSyntaxIndex::extract_definitions` (public) duplicates private `extract_defs` — dedupe (M3 review cycle 1, OPTIONAL).
+- Degenerate tree containing both `auth.py` and `auth/__init__.py` maps both to ModuleId("auth"); document or reject the collision (M3 review cycle 1, OPTIONAL).
+- `changed_symbols_impl`/`file_digest_impl` public inherent methods duplicate trait impls; fold into the trait impl or keep one private (M3 review cycle 2, OPTIONAL).
+- Degradation tests should pin `Unsupported::ParseIncomplete` via `matches!` rather than only `!is_proven` (M3 review cycle 2, OPTIONAL).
+- trellis-program declares trellis-source as a runtime dependency though only tests use it today; move to dev-dependencies or keep until M5 wires the consumer (M3 review cycle 3, OPTIONAL).
+- Backend-identity field on projection answers: vacuous while only one backend exists; add when the SCIP provider lands (M3 review cycle 1, OUT_OF_SCOPE for M3).

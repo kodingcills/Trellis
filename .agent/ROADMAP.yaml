@@ -110,24 +110,25 @@ nodes:
   - id: M3
     objective: Program projections — tree-sitter parsing, normalized symbols, file/definition/signature queries behind ProgramIndex (spec §9.3, §20).
     dependencies: [M0, M1]
-    status: pending
+    status: active
     deliverables:
       - trellis-program crate (§24 layout/layering)
       - ProgramIndex trait (§9.3); tree-sitter implementation for Python
       - normalized ProgramSymbol representation
-      - projections: file, definition, signature, references, callers (syntactic heuristics; SCIP precision arrives M8)
-      - ProjectionObservation production for evaluated queries
+      - syntactic projections: file-digest, definition, signature, imports, parse-status (per-unit syntax only)
+      - changed_symbols mapping a reconcile changed-file set to affected symbols
+      - semantic cross-file projections (references/callers/implementations/subclasses) = explicit UNSUPPORTED until the M8 semantic provider — never heuristic sets (uncertainty is never an empty set, §8)
     invariants:
       - consumers never depend on tree-sitter directly (ProgramIndex boundary, §9.3)
-      - syntactic resolution imprecision must not be hidden: results carry backend identity
+      - parse success is syntactic evidence only; failed units degrade queries to UNSUPPORTED, never partial Proven results
       - no SCIP knowledge outside the future adapter (§8)
     acceptance:
-      - fixture repo indexes; definition/signature/file queries correct on R0 fixture
-      - changed_symbols maps a reconcile changed-file set to affected symbols
-      - caller query returns superset-of-truth on fixture (documented imprecision)
+      - fixture repo indexes; file-digest/definition/signature queries correct on R0 fixture
+      - changed_symbols maps a reconcile changed-file set to affected symbols; a failed-parse unit in the changed set degrades the answer to UNSUPPORTED
+      - semantic queries return explicit UNSUPPORTED on the fixture (never an authoritative empty set)
     gates: [GLOBAL_GREEN, M3_QUERY_ACCEPTANCE]
     non_goals:
-      - SCIP ingestion (M8), overlay semantics (M9), coverage certificates (M7)
+      - SCIP ingestion (M8), overlay semantics (M9), coverage certificates (M7), ProjectionObservation production (deferred to M5 with snapshot context)
     evidence:
       - query acceptance tests on fixture
       - DECISIONS entry for symbol canonicalization rules

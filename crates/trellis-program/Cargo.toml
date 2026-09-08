@@ -1,0 +1,17 @@
+[package]
+name = "trellis-program"
+description = "Backend-independent program index and deterministic syntax-grounded Python projections (tree-sitter substrate; semantic resolution deferred to M8)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+trellis-core = { path = "../trellis-core" }
+trellis-source = { path = "../trellis-source" }
+tree-sitter = "0.25"
+tree-sitter-python = "0.25"
+
+[dev-dependencies]
+tempfile = "3"
