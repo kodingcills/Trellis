@@ -5,7 +5,3 @@ Cargo.lock.bak
 
 # Trellis local runtime state (when it exists)
 /.trellis/
-
-# Repository-local engineering control plane — kept out of the repo by
-# owner decision; AGENTS.md documents where it lives.
-/.agent/

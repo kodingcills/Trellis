@@ -1,0 +1,146 @@
+# .agent/QUALITY_GATES.yaml — what "green" means and how findings are dispositioned.
+
+schema: 1
+
+# GLOBAL_GREEN applies to every node and every commit. Node-specific gates
+# are additive and referenced from .agent/ROADMAP.yaml (node → gates:).
+
+GLOBAL_GREEN:
+  - command: cargo test --workspace
+    requirement: zero failures
+  - command: cargo clippy --workspace --all-targets -- -D warnings
+    requirement: zero warnings
+  - command: cargo fmt --all --check
+    requirement: zero diffs
+  - requirement: all active-node acceptance tests pass (ROADMAP node → gates)
+  - requirement: no architecture-invariant test failures (frozen spec §2 invariants encoded as tests)
+
+# Encoded architecture invariants — a failing one is a BLOCKER by definition.
+# Add tests here as they are implemented; a test listed here may not be
+# deleted or weakened without a human-escalated DECISIONS entry.
+INVARIANT_TESTS:
+  - artifact envelope has no mutable epistemic fields (spec §10)
+  - attestation history is append-only; individual attestations never transition (spec §12)
+  - capture trust is computed from derivation channels, never claimed (spec §13)
+  - reuse-policy floor: Valid ∧ Authoritative ∧ ¬Unobserved (spec §15)
+  - no continuous dirty tracking / daemon / watcher in v0.1 code paths (spec §5)
+  - projection kind/property consistency by construction (spec §7)
+  - canonical IDs are algorithm-tagged and reproducible (spec §19)
+
+# Node-specific gates (ROADMAP node → gates). A node's gate MUST be defined
+# here before the node can be recorded completed. Define the gate when the
+# node is activated, not after the implementation exists.
+NODE_GATES:
+  M1_RECONCILE_ACCEPTANCE:
+    criteria:
+      - reconcile detects add, modify, and delete against a real working tree (tempdir fixture)
+      - two manifests built from two identical trees reconcile to an empty changed set
+      - manifest digest is stable across independent runs on identical content
+      - canonical ID derivation is reproducible (same canonical bytes → same ID); official BLAKE3 test vector passes
+      - non-UTF-8 paths and conflicting digests fail loudly (never silently dropped)
+      - environment fingerprint: declared-only inputs, deny-by-default, raw values never retained
+    evidence_required: passing test names listed in the node run log
+
+# Finding severities. Every review finding is tagged with exactly one.
+SEVERITIES:
+  BLOCKER:
+    description: >
+      Correctness, architecture, or oracle-integrity violation; breaks a
+      frozen invariant; benchmark-validity violation; broken GLOBAL_GREEN.
+    policy: prevents commit; repair loop runs until resolved or escalated
+  IMPORTANT:
+    description: >
+      Real defect or contract gap that does not immediately break
+      correctness — e.g. missing edge-case test, contract drift, unclear
+      explain trace, acceptance-criterion gap.
+    policy: >
+      requires correction by default; may be explicitly dispositioned with
+      written rationale in the run log. Un-dispositioned IMPORTANT findings
+      block commit.
+  OPTIONAL:
+    description: polish, naming, structure, minor ergonomics.
+    policy: >
+      goes to BACKLOG. Cannot trigger another repair iteration, cannot
+      prevent current milestone completion, and cannot be promoted to
+      IMPORTANT merely because an agent finds it interesting.
+  OUT_OF_SCOPE:
+    description: valid idea, wrong layer or wrong milestone.
+    policy: >
+      goes to BACKLOG. Cannot trigger another repair iteration and cannot
+      block acceptance.
+
+# Commit authorization (spec of the spec: .agent/REVIEWER.md).
+COMMIT_AUTHORIZATION:
+  rule: >
+    A candidate may be committed only if a fresh semantic reviewer has
+    issued COMMIT_ALLOWED against the exact candidate state being committed.
+  post_repair_closure:
+    if_review_produced_BLOCKER_or_IMPORTANT_and_candidate_changed:
+      - previous review no longer authorizes commit
+      - re-run all required mechanical gates
+      - run a fresh reviewer against the FULL candidate diff from the last green commit
+      - only the fresh review may authorize the repaired state
+  reviewer_unavailable:
+    review_state: REVIEW_INCOMPLETE
+    on_failed_cancelled_or_incomplete_review:
+      - candidate must NOT be committed
+      - controller may retry within its bounded retry budget
+      - or stop at the previous green checkpoint
+  mechanical_vs_semantic: >
+    Mechanical verification supplements semantic review; it can never
+    replace a required fresh review. Never silently substitute tests for
+    the reviewer.
+
+# Review-loop bounds.
+REVIEW_LOOP:
+  cycle: >
+    implement → mechanical gates → fresh review → repair BLOCKER/IMPORTANT
+    → mechanical gates → fresh review → commit when COMMIT_ALLOWED
+  do_not_pursue_review_perfection: true
+  max_materially_similar_failed_repair_cycles: 3
+  on_exhaustion:
+    - stop repeating the strategy
+    - open a fresh diagnosis session
+    - split the node or escalate under the existing controller policy
+  optional_findings:
+    never count as failed repair cycles
+
+# Remote repository mutations require explicit standing human permission.
+# Local commits representing coherent verified green checkpoints are
+# autonomously permitted. One granted push does not imply standing
+# permission. Never force-push autonomously.
+REMOTE_POLICY:
+  autonomously_permitted:
+    - local git commits of coherent verified green checkpoints
+  requires_standing_human_permission:
+    - git push
+    - force-push
+    - tag creation
+    - release publication
+    - pull request creation
+    - any other remote repository mutation
+  never_autonomous:
+    - force-push
+
+# Bounded repair behavior (CONTROLLER.md). Applies to BLOCKER and
+# dispositioned IMPORTANT findings.
+REPAIR_POLICY:
+  max_materially_similar_attempts: 3
+  on_exhaustion:
+    - stop repeating the same implementation strategy
+    - open a fresh diagnosis/research session
+    - identify the missing capability or false assumption
+    - split the node via a ROADMAP contract amendment (small, evidence-based)
+  never:
+    - weaken a gate to make it pass
+    - edit oracle labels to match implementation
+    - disable or skip tests listed in INVARIANT_TESTS
+
+# Escalate to a human ONLY for (CONTROLLER.md §ESCALATION). Routine
+# implementation choices are worker judgment and must not escalate.
+ESCALATION_TRIGGERS:
+  - genuine frozen-architecture contradiction (ARCHITECTURE_CONFLICT)
+  - inability to establish benchmark ground truth
+  - destructive/external action requiring approval
+  - product-level decision not resolved by the frozen spec
+  - persistent failure after a strategy change

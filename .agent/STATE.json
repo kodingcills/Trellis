@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "updated_at": "2026-09-08",
+  "architecture_version": "draft-1.0-frozen",
+  "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
+
+  "current_green_commit": "1ad8aa2cb416687f2541f484701f0aac6e8fd495",
+  "current_green_commit_subject": "feat(source): deterministic manifests, lazy reconcile, BLAKE3 identities (M1)",
+  "current_green_commit_note": "Last code-green checkpoint. The harness-hardening checkpoint is recorded in last_gate_result.hardening_checkpoint once committed; harness edits are control-plane only and do not touch product code.",
+  "current_green_commit_evidence": {
+    "ran_at": "2026-09-08",
+    "GLOBAL_GREEN": {
+      "cargo_test": "pass — 59 passed (39 core + 20 source), 0 failed",
+      "clippy_D_warnings": "pass — zero warnings",
+      "fmt_check": "pass"
+    },
+    "node_gates": {
+      "M1_RECONCILE_ACCEPTANCE": "pass — criteria mapped to test names in run log"
+    }
+  },
+
+  "completed_nodes": [
+    "M0",
+    "M1"
+  ],
+  "active_nodes": [],
+  "blocked_nodes": [],
+  "next_candidates": [
+    "M2",
+    "M4"
+  ],
+  "next_candidates_note": "M2 (synthetic oracle fixture, deps M0) and M4 (persistence, deps M0) are both unblocked. M2 is oracle-first critical path per spec §33 and should precede M6; M4 unblocks M5/M8. Recommended next: M2.",
+
+  "known_architecture_conflicts": [],
+
+  "last_review": {
+    "node": "M1",
+    "kind": "fresh adversarial subagent review + mechanical repair verification",
+    "independent_adversarial_review": true,
+    "record": ".agent/reviews/2026-09-08-M1-fresh-adversarial.md",
+    "open_findings": [],
+    "dispositioned": "3 OPTIONAL → BACKLOG; 2 OPTIONAL corrected minimally (acceptance wording, doc guard)",
+    "deviation_note": "Repair re-verification subagent was cancelled; mechanical verification substituted and recorded in run log."
+  },
+
+  "last_gate_result": {
+    "ran_at": "2026-09-08",
+    "gate": "GLOBAL_GREEN + M1_RECONCILE_ACCEPTANCE",
+    "result": "pass",
+    "details": {
+      "tests": "59 passed / 0 failed",
+      "clippy": "clean at -D warnings",
+      "fmt": "clean"
+    }
+  },
+
+  "terminal_state": {
+    "v0_1_complete": false,
+    "condition": "All ROADMAP nodes completed with evidence; frozen DoD (spec §32) satisfied; zero BLOCKER findings; repo clean and reproducible. Then emit V0_1_COMPLETE and stop."
+  },
+
+  "hygiene_notes": [
+    "HARDENING (owner directive): control plane + AGENTS.md + frozen spec are version-controlled; spec canonical path is docs/architecture/TRELLIS_V0_1_FROZEN.md (single authoritative copy).",
+    "Superseded owner decision: `.agent/` was gitignored during bootstrap; reversal recorded in DECISIONS.",
+    "origin/main currently at 1ad8aa2 (M1 push recorded as resolved incident); further pushes require standing human permission per REMOTE_POLICY."
+  ]
+}

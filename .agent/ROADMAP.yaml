@@ -1,0 +1,375 @@
+# .agent/ROADMAP.yaml — Trellis v0.1 milestone DAG
+#
+# Contracts per milestone. The DAG structure and every node's purpose are
+# derived from the frozen spec §33 (implementation order) and §25-§27
+# (benchmarks/fixtures). Do not add nodes or edges not required by the
+# frozen spec — optional ideas go to .agent/BACKLOG.md.
+#
+# status vocabulary: pending | active | in_review | completed | blocked | cancelled
+# A node is completed ONLY from explicit evidence recorded under evidence:.
+#
+# Gates reference .agent/QUALITY_GATES.yaml. GLOBAL_GREEN applies to every
+# node implicitly; node gates are additive.
+
+schema: 1
+spec_document: "docs/architecture/TRELLIS_V0_1_FROZEN.md"
+release_target: RELEASE_V0_1
+
+nodes:
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M0
+    objective: Domain invariants — IDs, Artifact, Derivation, Projection, Snapshot, ValidationAttestation, epistemic enums (spec §33 M0).
+    dependencies: []
+    status: completed
+    deliverables:
+      - trellis-core crate with typed, algorithm-tagged content IDs (§19)
+      - four orthogonal epistemic dimensions + internal EngineState (§11)
+      - immutable ArtifactEnvelope with zero epistemic fields (§10)
+      - Derivation with computed (never claimed) CaptureTrust (§13)
+      - append-only AttestationHistory; attestations never transition (§12)
+      - Projection with kind/property consistency by construction (§7, §20)
+      - Snapshot with self-parent rejection (§6)
+      - default reuse-policy floor: Valid ∧ Authoritative ∧ ¬Unobserved (§15)
+    invariants:
+      - artifacts immutable; attestations append-only
+      - capture trust propagates from derivation, never claimed
+      - trellis-core std-only (§24 crate layering; DECISIONS log)
+    acceptance:
+      - cargo test --workspace green (32 invariant tests)
+      - acceptance-trace domain shape test (§33 nucleus scenario)
+    gates: [GLOBAL_GREEN]
+    non_goals:
+      - real hashing (M1), persistence (M4), any engine logic (M5+)
+    evidence:
+      - commit 8965d5e "feat(core): establish Trellis domain invariants"
+      - 32 passing tests, clippy -D warnings clean, fmt clean (verified 2026-09-08)
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M1
+    objective: Deterministic source state — BLAKE3 content hashing, repository manifests, snapshots, and lazy reconcile(snapshot, working_tree) (spec §5, §6, §19 incl. environment fingerprints).
+    dependencies: [M0]
+    status: completed
+    deliverables:
+      - blake3 wired behind ContentHash; IDs derive from canonical serialization (§19)
+      - canonical serialization layer owned by Trellis (sorted sets, normalized paths; §19)
+      - working-tree manifest construction and digest (§6)
+      - reconcile(manifest, working_tree) → exact changed-file set (add/modify/delete) (§5)
+      - environment fingerprint records: declared inputs only, env vars deny-by-default (§19)
+      - new crate boundary per §24 crate layering (e.g. trellis-source or within core — DECISIONS entry required)
+    invariants:
+      - no filesystem watcher, no daemon, no continuous dirty tracking (§5)
+      - reconcile is deterministic and side-effect free
+      - environment values never hashed/stored unless explicitly allowlisted; secrets never hashed (§19)
+      - no new trellis-core dependencies without DECISIONS entry (§24 crate layering; DECISIONS log)
+    acceptance:
+      - reconcile detects add/modify/delete on a fixture repo
+      - identical trees reconcile to an empty changed set
+      - manifest digest stable across runs on the same tree content
+      - ID derivation from canonical bytes is reproducible (same input → same ID)
+      - M0 suite remains green
+    gates: [GLOBAL_GREEN, M1_RECONCILE_ACCEPTANCE]
+    non_goals:
+      - syntax/semantic indexing (M3)
+      - git history traversal beyond the working-tree manifest
+    evidence:
+      - commit 1ad8aa2 "feat(source): deterministic manifests, lazy reconcile, BLAKE3 identities (M1)"
+      - 59 tests green (39 core + 20 source); clippy -D warnings clean; fmt clean
+      - M1_RECONCILE_ACCEPTANCE satisfied — test names in .agent/runs/M1/2026-09-08-deterministic-source-state.md
+      - review record .agent/reviews/2026-09-08-M1-fresh-adversarial.md (verdict: commit-approved after repair; repair re-verification REVIEW_INCOMPLETE under post-hardening rules — see ERRATUM in that record; closed under pre-hardening rules with deviation recorded in DECISIONS)
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M2
+    objective: Synthetic oracle fixture + mutation catalog with hand-labeled expected validity, written BEFORE sophisticated invalidation exists (spec §26, §33 oracle-first).
+    dependencies: [M0]
+    status: pending
+    deliverables:
+      - fixtures/python_auth/ (~30-50 files: auth, payments, tests; real-shaped)
+      - mutation catalog R0-R4+ as concrete diffs (§26): R0 absence, R1 unrelated, R2 new caller, R3 value-preserving implementation change, R4 architecture change
+      - machine-readable oracle labels: per mutation, expected validity for each seeded artifact
+      - oracle README documenting the labeling rationale
+    invariants:
+      - oracle labels written before the engine that must satisfy them (§33)
+      - fixture is deterministic; no network, no time-dependent behavior
+      - labels are never generated by the implementation being tested
+    acceptance:
+      - every mutation applies cleanly as a patch onto the base fixture
+      - each seeded artifact has an expected-validity label per mutation
+      - review confirms labels match the frozen spec's semantics (§18, §29)
+    gates: [GLOBAL_GREEN, M2_ORACLE_REVIEW]
+    non_goals:
+      - any invalidation machinery
+      - the pinned OSS fixture (M12)
+    evidence:
+      - fixture + catalog + labels committed
+      - independent review record in .agent/reviews/
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M3
+    objective: Program projections — tree-sitter parsing, normalized symbols, file/definition/signature queries behind ProgramIndex (spec §9.3, §20).
+    dependencies: [M0, M1]
+    status: pending
+    deliverables:
+      - trellis-program crate (§24 layout/layering)
+      - ProgramIndex trait (§9.3); tree-sitter implementation for Python
+      - normalized ProgramSymbol representation
+      - projections: file, definition, signature, references, callers (syntactic heuristics; SCIP precision arrives M8)
+      - ProjectionObservation production for evaluated queries
+    invariants:
+      - consumers never depend on tree-sitter directly (ProgramIndex boundary, §9.3)
+      - syntactic resolution imprecision must not be hidden: results carry backend identity
+      - no SCIP knowledge outside the future adapter (§8)
+    acceptance:
+      - fixture repo indexes; definition/signature/file queries correct on R0 fixture
+      - changed_symbols maps a reconcile changed-file set to affected symbols
+      - caller query returns superset-of-truth on fixture (documented imprecision)
+    gates: [GLOBAL_GREEN, M3_QUERY_ACCEPTANCE]
+    non_goals:
+      - SCIP ingestion (M8), overlay semantics (M9), coverage certificates (M7)
+    evidence:
+      - query acceptance tests on fixture
+      - DECISIONS entry for symbol canonicalization rules
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M4
+    objective: Persistence — SQLite (WAL) metadata, local CAS, append-only attestation storage, crash-consistent publication (spec §19).
+    dependencies: [M0]
+    status: pending
+    deliverables:
+      - trellis-store crate: MetadataStore trait + SQLite implementation with migrations
+      - trellis-cas crate: BlobStore trait + fs store with atomic write protocol (§19)
+      - artifact/attestation/projection-observation persistence
+      - crash-consistent publication order: blob first, metadata second (§19)
+    invariants:
+      - storage implementations contain no validity logic (§24 layering)
+      - CAS blobs immutable after publication
+      - metadata-first-then-blob order forbidden (§19)
+      - every persistent object carries schema_version (§19)
+    acceptance:
+      - publish artifact + attestation survives simulated crash between steps
+      - orphaned blobs collectible by GC roots walk (GC itself may be minimal)
+      - reopening the store reproduces identical domain objects
+    gates: [GLOBAL_GREEN, M4_PERSISTENCE_ACCEPTANCE]
+    non_goals:
+      - PostgreSQL, remote CAS, any network storage
+      - garbage-collection policy beyond orphan sweep
+    evidence:
+      - crash-consistency tests
+      - DECISIONS entries for schema v1 and migration approach
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M5
+    objective: Dependency engine — projection observations, reverse indexes, dirty-candidate discovery (spec §18 steps 1-3).
+    dependencies: [M3, M4]
+    status: pending
+    deliverables:
+      - trellis-engine crate (§24)
+      - projection observation recording tied to snapshots
+      - reverse indexes: symbol → projections, file → projections (§18 step 2)
+      - changed-file set → smallest candidate projection impact set
+    invariants:
+      - candidate discovery may over-approximate but never miss (correctness dominates reuse, §2.1)
+      - engine code cannot depend on storage internals (§24 layering)
+    acceptance:
+      - R0 fixture: editing a file maps to exactly the projections touching its symbols (plus documented over-approximation)
+      - unrelated-file edits produce empty or minimal candidate sets
+    gates: [GLOBAL_GREEN, M5_IMPACT_ACCEPTANCE]
+    non_goals:
+      - reevaluation itself (M6), semantic backends (M8)
+    evidence:
+      - impact-set tests against the mutation catalog
+      - run log with measured candidate-set sizes
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M6
+    objective: Red/green invalidation with value-equality cutoff and causal explanation (spec §18).
+    dependencies: [M2, M5]
+    status: pending
+    deliverables:
+      - projection reevaluation for dirty candidates
+      - GREEN on old value == new value; DIRTY/VERIFY/STALE path otherwise
+      - value-equality cutoff: no downstream propagation when recomputed semantic value is unchanged (§18 step 12)
+      - attestation appends on every evaluation (STALE/VALID per contract)
+      - explain record: exact cause chain queryable (§28 item 7, §18)
+    invariants:
+      - internal EngineState never leaks into public validity (§11)
+      - over-invalidation is safe; under-invalidation is a BLOCKER (§2.1)
+      - oracle labels (M2) are the correctness reference — never reverse-engineered
+    acceptance:
+      - §33 first acceptance trace passes end-to-end on the fixture (absence → new caller → STALE)
+      - §33 red/green counterexample passes (caller body change, caller set unchanged → no propagation)
+      - explain output names projection, old value, new value, affected dependents
+    gates: [GLOBAL_GREEN, M6_ORACLE_ACCEPTANCE]
+    non_goals:
+      - completeness/absence soundness (M7), semantic precision (M8)
+    evidence:
+      - oracle validation run results (all R0-R4 labels matched or deviations explained)
+      - explain trace samples in run log
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M7
+    objective: Universe + coverage certificates — requirements/capabilities split and completeness evaluator for absence claims (spec §8).
+    dependencies: [M6]
+    status: pending
+    deliverables:
+      - universe descriptor + universe digest as a dependency (§8.1)
+      - CoverageCertificate produced by the program-index backend (§8.2)
+      - per-projection-kind completeness requirements (backend-independent)
+      - CompletenessEvaluator: Requirements(Q) ⊆ Capabilities(C) → COMPLETE else UNKNOWN
+      - absence claims: empty + satisfied → authoritative absence candidate; empty + unsatisfied → UNKNOWN
+    invariants:
+      - projection kinds contain no backend-specific knowledge (§8.2)
+      - tree-sitter cross-validation is evidence, never proof (§8.2)
+      - universe/coverage change dirties the query; no immediate downstream destruction (§8.1)
+    acceptance:
+      - indexer-version change dirties all completeness-sensitive observations
+      - new file (universe growth) invalidates prior absence claims
+      - file with known-failed semantic coverage → absence claim downgraded to UNKNOWN
+    gates: [GLOBAL_GREEN, M7_ABSENCE_ACCEPTANCE]
+    non_goals:
+      - SCIP adapter itself (M8)
+    evidence:
+      - absence acceptance tests incl. §33 first-trace with coverage fields
+      - DECISIONS entry enumerating kind-level requirements v1
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M8
+    objective: Authoritative SCIP freeze adapter — batch ingest, authoritative semantic snapshots, freeze rule (spec §9.1, §9.3, §6).
+    dependencies: [M3, M4]
+    status: pending
+    deliverables:
+      - scip ingestion into normalized program graph (SCIP knowledge ONLY here, §8.2)
+      - SemanticSnapshotId production at freeze points
+      - freeze rule implementation: freeze only when requested authoritative decision depends on semantic projections not provably compatible with current source state (§6)
+      - CoverageCertificate population from SCIP evidence (with M7 types)
+    invariants:
+      - authoritative semantics only from frozen SCIP snapshots (§9.1)
+      - mid-task overlay never grants completeness authority (§9.2)
+      - SCIP specifics never leave the adapter (§8.2)
+    acceptance:
+      - fixture freeze produces semantic snapshot; callers query exact on fixture
+      - README-only change does NOT trigger SCIP rerun; auth-file change does (§6 examples)
+    gates: [GLOBAL_GREEN, M8_FREEZE_ACCEPTANCE]
+    non_goals:
+      - overlay evaluation (M9), benchmarks (M10)
+    evidence:
+      - freeze-rule acceptance tests with both §6 examples
+      - run log with freeze cost measurements (feeds M10)
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M9
+    objective: Provisional live overlay — frozen SCIP + source delta + tree-sitter between freezes (spec §9.2).
+    dependencies: [M8, M6]
+    status: pending
+    deliverables:
+      - overlay view = last frozen SCIP graph + reconcile delta + tree-sitter
+      - mid-task queries served from overlay with backend-identity stamping
+      - PROVISIONAL authority attestations for overlay-established results
+      - authority upgrade path: freeze revalidation appends AUTHORITATIVE attestation (§12.2)
+    invariants:
+      - overlay results can never be authoritative (§9.2)
+      - PROVISIONAL attestation + Validity is never auto-reusable by floor policy (§15)
+      - authority strengthening happens only by appending (§12.2)
+    acceptance:
+      - mid-task caller query reflects overlay state; attestation is PROVISIONAL
+      - subsequent freeze upgrades the same artifact to AUTHORITATIVE by append; prior attestation unchanged
+    gates: [GLOBAL_GREEN, M9_OVERLAY_ACCEPTANCE]
+    non_goals:
+      - any use of the overlay for completeness/absence authority
+    evidence:
+      - upgrade-by-append tests
+      - run log demonstrating provisional → authoritative history
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M10
+    objective: Benchmarks A (oracle validity) + B (systems economics) on the synthetic fixture (spec §25 A, B; §28).
+    dependencies: [M2, M6, M7, M8]
+    status: pending
+    deliverables:
+      - Benchmark A harness: false-valid rate, stale recall, invalidation precision, abstention rate across full mutation catalog
+      - Benchmark B harness: capture cost, reconciliation cost, projection validation, SCIP freeze cost, CAS/storage cost; p50/p95/p99; scaling vs frontier size
+      - reproducible run scripts + result artifacts committed under benchmarks/
+    invariants:
+      - oracle labels are ground truth; implementation never writes labels
+      - B validates C_validate ≪ C_recompute — the kill-criterion measurement (§28)
+    acceptance:
+      - A: zero false-valid on deterministic classes; stale recall reported with confidence interval
+      - B: validation cost materially below recomputation cost on fixture scale; numbers committed
+      - both reruns reproduce within stated variance
+    gates: [GLOBAL_GREEN, M10_BENCHMARK_ACCEPTANCE]
+    non_goals:
+      - agent-driven benchmark (M11), OSS fixture (M12)
+    evidence:
+      - benchmark results committed with run environment fingerprint
+      - analysis note vs kill criteria (§28)
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M11
+    objective: Controlled-agent benchmark C — minimal agent loop, same-logical-tool-API fairness, baseline ladder (spec §25 C).
+    dependencies: [M10]
+    status: pending
+    deliverables:
+      - minimal ReAct tool-loop agent (~500 lines Python) driving CLI/SDK
+      - two conditions (plain vs trellis) behind the SAME logical tool API; identical semantic-query implementation (§25 fairness contract)
+      - ladder rungs: fresh, exact cache, file-level invalidation (memory/RAG and semantic rungs optional beyond first three)
+      - frozen controls: context budget, max steps, timeout, model config, prompt/tool descriptions, repo start state
+      - paired repeated trials with variance reporting
+    invariants:
+      - independent variable is capture/validity/reuse ONLY (§25)
+      - no condition receives better program intelligence than another
+      - prompt-cache effects reported separately from logical-computation savings (§25 Benchmark C)
+    acceptance:
+      - ≥3 paired trials per task pair; correctness unchanged; exploration/repeat-task metrics reported
+      - fairness checklist documented per run (§25 controls)
+    gates: [GLOBAL_GREEN, M11_AGENT_BENCHMARK_ACCEPTANCE]
+    non_goals:
+      - external open harnesses (M12), semantic scorer
+    evidence:
+      - results + fairness checklist committed
+      - model/provider configuration recorded (§10 ProducerInfo provenance)
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: M12
+    objective: Pinned OSS external validation — lightweight realism/integration fixture, never an oracle (spec §26, §25 D).
+    dependencies: [M3, M10]
+    status: pending
+    deliverables:
+      - pinned (locked-commit) real OSS Python repo as fixture
+      - indexing coverage report, query smoke tests, reconciliation behavior at scale
+      - documented failures/coverage gaps fed back as evidence (not as blocker by default)
+    invariants:
+      - OSS fixture is NEVER treated as a validity oracle (§26)
+      - upstream drift handled by pinning only; no rebasing expectations
+    acceptance:
+      - index + reconcile + freeze run on pinned repo within recorded resource envelope
+      - coverage report committed; absence-claim behavior on partially-covered files matches M7 semantics
+    gates: [GLOBAL_GREEN, M12_OSS_ACCEPTANCE]
+    non_goals:
+      - oracle labeling of OSS behavior
+      - unbounded scale/challenge-repo chasing
+    evidence:
+      - coverage + smoke results committed
+      - DECISIONS entry pinning the repo + commit
+
+  # ─────────────────────────────────────────────────────────────────────
+  - id: RELEASE_V0_1
+    objective: v0.1 terminal condition — frozen Definition of Done satisfied (spec §32, §28).
+    dependencies: [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12]
+    status: pending
+    deliverables:
+      - all node evidence assembled and re-verified from a clean checkout
+      - documentation matches implementation (AGENTS.md, README, spec deltas only via DECISIONS)
+      - final adversarial review with zero BLOCKER findings
+      - release notes summarizing benchmark evidence
+    invariants:
+      - DoD checked item-by-item against spec §32; nothing waved through
+      - repo clean and reproducible from clone → gates green
+    acceptance:
+      - §28 items 1-9 demonstrated in one reproducible benchmark run
+      - Benchmark B confirms economic premise with headroom
+      - attestation + coverage-certificate behaviors demonstrated (§32)
+    gates: [GLOBAL_GREEN, RELEASE_DOD_AUDIT]
+    non_goals:
+      - v0.2 features, performance polish beyond benchmarks, distribution
+    evidence:
+      - completed DoD checklist committed
+      - V0_1_COMPLETE emitted in run log; STATE.json terminal marker set
