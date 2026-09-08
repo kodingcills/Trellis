@@ -7,9 +7,10 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-# trellis-core depends on almost nothing (spec §73). M0 is std-only;
-# hashing (BLAKE3) arrives with M1 behind these same types.
+# trellis-core depends on almost nothing (spec §73). blake3 (§19) is the
+# sanctioned exception: pure computation, recorded in DECISIONS.
 [dependencies]
+blake3 = "1"
 
 [lints.rust]
 unsafe_code = "forbid"

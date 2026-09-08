@@ -22,6 +22,7 @@
 
 pub mod artifact;
 pub mod attestation;
+pub mod canonical;
 pub mod error;
 pub mod ids;
 pub mod projection;
@@ -35,11 +36,15 @@ pub mod prelude {
         ReuseClass,
     };
     pub use crate::attestation::{AttestationHistory, EvidenceRef, ValidationAttestation};
+    pub use crate::canonical::{
+        write_bytes, write_sorted_str_pairs, write_sorted_strs, write_str, write_u64,
+    };
     pub use crate::error::DomainError;
     pub use crate::ids::{
-        ArtifactId, AttestationId, BlobId, ContentHash, DerivationId, EnvironmentFingerprintId,
-        GitOid, HashAlgo, ManifestId, ProjectionId, ProjectionObservationId, RepositoryId,
-        SemanticSnapshotId, SnapshotId, Timestamp, VerifierId,
+        ArtifactId, AttestationId, BlobId, ContentHash, ContentHasher, DerivationId,
+        EnvironmentFingerprintId, GitOid, HashAlgo, ManifestId, ProjectionId,
+        ProjectionObservationId, RepositoryId, SemanticSnapshotId, SnapshotId, Timestamp,
+        VerifierId,
     };
     pub use crate::projection::{
         Projection, ProjectionKind, ProjectionObservation, Property, Scope, Subject,

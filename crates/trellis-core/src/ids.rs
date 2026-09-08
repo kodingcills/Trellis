@@ -64,6 +64,22 @@ pub struct ContentHash {
 }
 
 impl ContentHash {
+    /// Hash a canonical byte sequence with the given algorithm and wrap the
+    /// digest (spec §19: identities are computed over Trellis-canonical
+    /// bytes, never over third-party serializations).
+    #[must_use]
+    pub fn compute(algo: HashAlgo, data: &[u8]) -> Self {
+        match algo {
+            HashAlgo::Blake3 => {
+                let digest = blake3::hash(data);
+                Self {
+                    algo,
+                    digest: *digest.as_bytes(),
+                }
+            }
+        }
+    }
+
     /// Wrap a raw digest. Returns `None` if the length does not match the
     /// algorithm's digest length.
     #[must_use]
@@ -108,6 +124,42 @@ impl FromStr for ContentHash {
             algo,
             got: digest.len(),
         })
+    }
+}
+
+/// Incremental content hasher over canonical bytes. Use for payloads too
+/// large to buffer (files); equivalent to [`ContentHash::compute`] on the
+/// concatenated bytes.
+#[derive(Debug)]
+pub struct ContentHasher {
+    algo: HashAlgo,
+    inner: blake3::Hasher,
+}
+
+impl ContentHasher {
+    /// Start hashing with the given algorithm.
+    #[must_use]
+    pub fn new(algo: HashAlgo) -> Self {
+        let inner = match algo {
+            HashAlgo::Blake3 => blake3::Hasher::new(),
+        };
+        Self { algo, inner }
+    }
+
+    /// Feed the next chunk of canonical bytes.
+    pub fn update(&mut self, data: &[u8]) -> &mut Self {
+        self.inner.update(data);
+        self
+    }
+
+    /// Finish and wrap the digest.
+    #[must_use]
+    pub fn finish(&self) -> ContentHash {
+        let digest = self.inner.finalize();
+        ContentHash {
+            algo: self.algo,
+            digest: *digest.as_bytes(),
+        }
     }
 }
 
@@ -337,6 +389,39 @@ mod tests {
     fn digest_length_mismatch_rejected() {
         let short = vec![0u8; 16];
         assert!(ContentHash::from_bytes(HashAlgo::Blake3, &short).is_none());
+    }
+
+    #[test]
+    fn compute_is_deterministic_and_input_sensitive() {
+        let a = ContentHash::compute(HashAlgo::Blake3, b"canonical bytes");
+        let b = ContentHash::compute(HashAlgo::Blake3, b"canonical bytes");
+        let c = ContentHash::compute(HashAlgo::Blake3, b"canonical bytes ");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        assert_eq!(a.algo(), HashAlgo::Blake3);
+    }
+
+    #[test]
+    fn streaming_hasher_matches_one_shot() {
+        let algo = HashAlgo::Blake3;
+        let mut hasher = ContentHasher::new(algo);
+        hasher.update(b"chunk one");
+        hasher.update(b"chunk two");
+        let streamed = hasher.finish();
+        let one_shot = ContentHash::compute(algo, b"chunk onechunk two");
+        assert_eq!(streamed, one_shot);
+    }
+
+    #[test]
+    fn known_blake3_vector() {
+        // BLAKE3 of empty input, official test vector (first 8 hex chars
+        // 0af15ee2 across the full digest af1349b9...).
+        let empty = ContentHash::compute(HashAlgo::Blake3, b"");
+        let rendered = empty.to_string();
+        assert!(
+            rendered.starts_with("blake3:af1349b9"),
+            "unexpected blake3(empty) digest: {rendered}"
+        );
     }
 
     #[test]
