@@ -1,0 +1,6 @@
+[project]
+name = "acme-service"
+version = "0.1.0"
+description = "Fixture service: auth, users, payments, and an HTTP-ish API layer."
+requires-python = ">=3.11"
+dependencies = []

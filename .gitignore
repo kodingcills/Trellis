@@ -2,6 +2,8 @@
 Cargo.lock.bak
 *.swp
 .DS_Store
+__pycache__/
+*.pyc
 
 # Trellis local runtime state (when it exists)
 /.trellis/

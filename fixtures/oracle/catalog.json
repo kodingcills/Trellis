@@ -1,0 +1,1172 @@
+{
+  "schema": "trellis-oracle-catalog/1",
+  "conventions": {
+    "symbol_canonical_form": "dotted python path, e.g. auth.tokens.refresh_token",
+    "projection_key": "kind(subject, scope)",
+    "set_values": "sorted ascending, unique",
+    "base_state": "pristine fixture at fixtures/python_auth/base",
+    "mutation_application": "apply ops in order to the parent tree; each op must apply cleanly",
+    "validity_vocabulary": "VALID | STALE | UNKNOWN",
+    "authority_vocabulary": "AUTHORITATIVE | PROVISIONAL",
+    "label_provenance_vocabulary": [
+      "fixture-construction",
+      "python-import-semantics",
+      "textual-reference-cross-check",
+      "hand-reviewed-call-graph"
+    ]
+  },
+  "fixture": {
+    "root": "fixtures/python_auth/base",
+    "test_modules": [
+      "tests.test_tokens",
+      "tests.test_password",
+      "tests.test_session",
+      "tests.test_users",
+      "tests.test_pricing",
+      "tests.test_payments",
+      "tests.test_routes",
+      "tests.test_providers"
+    ],
+    "file_count_py": 35
+  },
+  "seeded_artifacts": [
+    {
+      "id": "ART_CALLERS_REFRESH",
+      "kind": "STRUCTURAL_SET",
+      "proposition": null,
+      "depends_on": [
+        "Callers(auth.tokens.refresh_token, Repository)"
+      ],
+      "base_value": {
+        "type": "empty_set"
+      },
+      "base_validity": "VALID",
+      "base_authority": "AUTHORITATIVE",
+      "validity_note": "Set-equality contract: the artifact is valid iff the reevaluated caller set equals the recorded one. Absence-bearing under the repository scope."
+    },
+    {
+      "id": "ART_NO_CALLERS_FACT",
+      "kind": "FACT",
+      "proposition": "auth.tokens.refresh_token has no callers anywhere in the repository",
+      "depends_on": [
+        "Callers(auth.tokens.refresh_token, Repository)"
+      ],
+      "base_value": {
+        "type": "empty_set"
+      },
+      "base_validity": "VALID",
+      "base_authority": "AUTHORITATIVE",
+      "validity_note": "Authoritative absence: empty result under complete coverage (spec §8). Becomes UNKNOWN if coverage evidence degrades, STALE if the set becomes non-empty."
+    },
+    {
+      "id": "ART_PROVIDER_SET",
+      "kind": "STRUCTURAL_SET",
+      "proposition": null,
+      "depends_on": [
+        "Implementations(auth.interfaces.AuthProvider, Repository)"
+      ],
+      "base_value": {
+        "type": "set",
+        "members": [
+          "auth.providers.oidc_provider.OidcAuthProvider",
+          "auth.providers.password_provider.PasswordAuthProvider"
+        ]
+      },
+      "base_validity": "VALID",
+      "base_authority": "AUTHORITATIVE",
+      "validity_note": "Set-equality contract."
+    },
+    {
+      "id": "ART_VALIDATE_SIG",
+      "kind": "STRUCTURAL_SET",
+      "proposition": null,
+      "depends_on": [
+        "Signature(auth.interfaces.AuthProvider.validate, Repository)"
+      ],
+      "base_value": {
+        "type": "text",
+        "value": "(self, code: str) -> bool"
+      },
+      "base_validity": "VALID",
+      "base_authority": "AUTHORITATIVE",
+      "validity_note": "Normalized-signature equality contract."
+    },
+    {
+      "id": "ART_STATELESS",
+      "kind": "FACT",
+      "proposition": "Authentication is stateless: sessions carry everything in a signed token and no server-side session storage exists.",
+      "depends_on": [
+        "FileContent(auth/session.py)",
+        "FileContent(auth/tokens.py)",
+        "FileContent(config/settings.py)"
+      ],
+      "base_value": {
+        "type": "text",
+        "value": "stateless-session-model"
+      },
+      "base_validity": "VALID",
+      "base_authority": "AUTHORITATIVE",
+      "validity_note": "Grounded in auth/session.py: Session carries only user_id/expires_at, and no server-side store exists in the fixture.",
+      "provenance": [
+        "fixture-construction",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "ART_LOGIN_CALLERS",
+      "kind": "STRUCTURAL_SET",
+      "proposition": null,
+      "depends_on": [
+        "Callers(auth.service.AuthService.login, Repository)"
+      ],
+      "base_value": {
+        "type": "set",
+        "members": [
+          "users.service.UserService.login"
+        ]
+      },
+      "base_validity": "VALID",
+      "base_authority": "AUTHORITATIVE",
+      "validity_note": "Set-equality contract."
+    }
+  ],
+  "mutations": [
+    {
+      "id": "R0",
+      "title": "Baseline: refresh_token has no callers",
+      "parent": "BASE",
+      "purpose": "Label the pristine fixture state; the canonical absence case.",
+      "ops": [],
+      "intended_semantic_change": "None. R0 asserts the baseline relationships: refresh_token is defined but never called or referenced anywhere outside its definition.",
+      "affected_projections": [],
+      "unchanged_projections": [],
+      "artifact_consequences": [],
+      "completeness_absence_involved": true,
+      "completeness_note": "The absence claim Callers(refresh_token)=∅ is complete by exhaustive textual inspection of the BASE tree: the token 'refresh_token' occurs only in auth/tokens.py.",
+      "ground_truth_rationale": "The fixture was authored such that no module imports or calls refresh_token; verified by exhaustive grep over the BASE tree (textual-reference-cross-check).",
+      "provenance": [
+        "fixture-construction",
+        "textual-reference-cross-check",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "R1",
+      "title": "Unrelated payments constant changes",
+      "parent": "BASE",
+      "purpose": "Unrelated-change locality: an edit in payments must not invalidate any auth projection or artifact.",
+      "ops": [
+        {
+          "op": "replace_file",
+          "path": "payments/pricing.py",
+          "content": "\"\"\"Order pricing rules.\"\"\"\n\nTAX_RATE = 0.0\nPROMO_CODE = \"SAVE10\"\n\n\ndef compute_total(subtotal_cents: int, tax_rate: float | None = None) -> int:\n    \"\"\"Return the total in cents, tax applied on top of the subtotal.\"\"\"\n    rate = TAX_RATE if tax_rate is None else tax_rate\n    return subtotal_cents + round(subtotal_cents * rate)\n"
+        }
+      ],
+      "intended_semantic_change": "The payments promotion constant changes value and the module docstring changes. No symbol set, signature, or caller relation in the fixture changes.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "payments/pricing.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "The file content changes; its digest changes with it."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "empty_set"
+          },
+          "why": "No auth file is touched; no new call sites can appear."
+        },
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.service.AuthService.login",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "users.service.UserService.login"
+            ]
+          },
+          "why": "users/service.py is untouched; routes unchanged."
+        },
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "auth.interfaces.AuthProvider",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "auth.providers.oidc_provider.OidcAuthProvider",
+              "auth.providers.password_provider.PasswordAuthProvider"
+            ]
+          },
+          "why": "No provider file is touched."
+        },
+        {
+          "key": {
+            "kind": "Signature",
+            "subject": "auth.interfaces.AuthProvider.validate",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "text",
+            "value": "(self, code: str) -> bool"
+          },
+          "why": "auth/interfaces.py is untouched."
+        },
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "payments.interfaces.PaymentGateway",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "payments.gateway.FakeGateway",
+              "payments.gateway.StripeGateway"
+            ]
+          },
+          "why": "payments/pricing.py defines no gateway classes; the constant edit cannot alter the implementor set."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Reevaluated caller set is still empty; value unchanged."
+        },
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "The proposition remains true; universe and coverage unchanged."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set unchanged."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Interface untouched."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No auth file touched."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Caller set unchanged."
+        }
+      ],
+      "completeness_absence_involved": false,
+      "completeness_note": null,
+      "ground_truth_rationale": "Pricing constants have no import/call relationship to any labeled projection; the only textual change is inside payments/pricing.py.",
+      "provenance": [
+        "fixture-construction",
+        "textual-reference-cross-check",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "R2",
+      "title": "New external caller of refresh_token",
+      "parent": "BASE",
+      "purpose": "Break the absence: an empty caller set becomes non-empty, invalidating absence-dependent artifacts under complete coverage.",
+      "ops": [
+        {
+          "op": "add_file",
+          "path": "api/webhooks.py",
+          "content": "\"\"\"Outbound webhook delivery with token rotation.\"\"\"\n\nfrom auth.tokens import refresh_token\n\n\ndef handle_refresh(user_id: str) -> str:\n    \"\"\"Rotate the token for an expiring integration session.\"\"\"\n    return refresh_token(user_id)\n"
+        }
+      ],
+      "intended_semantic_change": "A new module defines handle_refresh, which calls refresh_token. The repository-wide caller set of refresh_token transitions from the empty set to exactly {api.webhooks.handle_refresh}.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "api.webhooks.handle_refresh"
+            ]
+          },
+          "why": "The only new call site is inside api/webhooks.py:handle_refresh."
+        },
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "api/webhooks.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "A new file is added; its content digest exists where none did before."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.service.AuthService.login",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "users.service.UserService.login"
+            ]
+          },
+          "why": "The new module does not call AuthService.login."
+        },
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "auth.interfaces.AuthProvider",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "auth.providers.oidc_provider.OidcAuthProvider",
+              "auth.providers.password_provider.PasswordAuthProvider"
+            ]
+          },
+          "why": "No new AuthProvider subclass is introduced."
+        },
+        {
+          "key": {
+            "kind": "Signature",
+            "subject": "auth.interfaces.AuthProvider.validate",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "text",
+            "value": "(self, code: str) -> bool"
+          },
+          "why": "Interfaces untouched."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "STALE",
+          "why": "Cached caller set (empty) no longer equals the reevaluated set {api.webhooks.handle_refresh}."
+        },
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "STALE",
+          "why": "The proposition 'refresh_token has no callers' is false after reevaluation under complete coverage; the FACT must not be reused."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set unchanged."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Interface untouched."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Session model untouched."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "AuthService.login caller set unchanged."
+        }
+      ],
+      "completeness_absence_involved": true,
+      "completeness_note": "The universe grows by one file (api/webhooks.py). Under complete coverage the reevaluated absence claim is now false. This is the canonical R2 case from the frozen spec.",
+      "ground_truth_rationale": "auth.tokens.refresh_token is called from exactly one new site, api.webhooks.handle_refresh; confirmed by the fixture construction (the new file was authored for this purpose) and by textual inspection of the mutated tree.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "R3",
+      "title": "Existing caller's body changes; caller relation unchanged",
+      "parent": "R2",
+      "purpose": "The value-unchanged cutoff case: a dependency's file changes, the projection value reevaluates identically, and dependents must not be over-invalidated.",
+      "ops": [
+        {
+          "op": "replace_file",
+          "path": "api/webhooks.py",
+          "content": "\"\"\"Outbound webhook delivery with token rotation and audit logging.\"\"\"\n\nfrom auth.tokens import refresh_token\n\n\ndef handle_refresh(user_id: str, reason: str = \"scheduled\") -> str:\n    \"\"\"Rotate the token for an expiring integration session (audited).\"\"\"\n    token = refresh_token(user_id)\n    _audit(user_id, reason)\n    return token\n\n\ndef _audit(user_id: str, reason: str) -> None:\n    \"\"\"Append an audit line (fixture: stdout).\"\"\"\n    print(f\"audit: rotate user={user_id} reason={reason}\")\n"
+        }
+      ],
+      "intended_semantic_change": "handle_refresh gains a reason parameter and audit logging but still calls refresh_token exactly once. The caller set is unchanged; the file content changed.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "api/webhooks.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "The module body changes."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "api.webhooks.handle_refresh"
+            ]
+          },
+          "why": "handle_refresh still calls refresh_token; the added _audit helper does not; no other call sites exist."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "STALE",
+          "after": "VALID",
+          "why": "Reevaluated under the changed file, the caller set equals the previously recomputed value; the set-equality contract re-establishes validity (spec §18 step 12 cutoff)."
+        },
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "STALE",
+          "after": "STALE",
+          "why": "The proposition remains false; recomputation yields the same non-empty set, so the FACT stays stale."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set unchanged by a body-level edit in api/webhooks.py."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No interface change in this mutation."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "auth/session.py untouched."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No new or removed call site of AuthService.login."
+        }
+      ],
+      "completeness_absence_involved": false,
+      "completeness_note": null,
+      "ground_truth_rationale": "The mutated body adds an audit call but the call graph edge handle_refresh → refresh_token is preserved; set membership is determined by call sites, which are unchanged. This is the frozen spec's canonical red/green counterexample.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "R4",
+      "title": "AuthProvider.validate signature widened",
+      "parent": "BASE",
+      "purpose": "Architecture/interface change with explicitly enumerated consequences: signature-dependent artifacts go stale, implementor-set and behavior artifacts stay valid.",
+      "ops": [
+        {
+          "op": "replace_file",
+          "path": "auth/interfaces.py",
+          "content": "\"\"\"Provider interfaces for credential checking.\"\"\"\n\nfrom abc import ABC, abstractmethod\n\n\nclass AuthProvider(ABC):\n    \"\"\"A strategy for verifying presented credentials.\"\"\"\n\n    @abstractmethod\n    def authenticate(self, credentials: dict[str, str]) -> str:\n        \"\"\"Return the user id on success; raise InvalidCredentials on failure.\"\"\"\n\n    @abstractmethod\n    def validate(self, code: str, context: dict[str, str] | None = None) -> bool:\n        \"\"\"Validate a secondary code, optionally with request context.\"\"\"\n"
+        }
+      ],
+      "intended_semantic_change": "The abstract validate method gains an optional context parameter. The normalized signature changes; both existing implementations remain signature-compatible (they override with a narrower signature), so the implementor set and the call graph are unchanged. Runtime behavior is unchanged (the parameter is optional and unused by the interface).",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "auth/interfaces.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "The interface file changes."
+        },
+        {
+          "key": {
+            "kind": "Signature",
+            "subject": "auth.interfaces.AuthProvider.validate",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "text",
+            "value": "(self, code: str, context: dict[str, str] | None = None) -> bool"
+          },
+          "why": "The abstract signature gains the optional context parameter."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "empty_set"
+          },
+          "why": "No call sites added or removed anywhere."
+        },
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "auth.interfaces.AuthProvider",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "auth.providers.oidc_provider.OidcAuthProvider",
+              "auth.providers.password_provider.PasswordAuthProvider"
+            ]
+          },
+          "why": "No class begins or ends inheriting AuthProvider; both implementors remain."
+        },
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.service.AuthService.login",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "users.service.UserService.login"
+            ]
+          },
+          "why": "No call sites change."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "STALE",
+          "why": "Cached signature text no longer equals the reevaluated normalized signature."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set value unchanged; implementors remain signature-compatible with the widened abstract method."
+        },
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Caller set still empty; value unchanged."
+        },
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Absence claim unaffected by an interface signature change."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "auth/session.py untouched; the statelessness proposition does not depend on the provider interface."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Caller set unchanged."
+        }
+      ],
+      "completeness_absence_involved": false,
+      "completeness_note": null,
+      "ground_truth_rationale": "Signature equality is textual/normalized on the abstract declaration; adding an optional parameter changes it by construction. Implementor membership depends on subclass declarations, which are unchanged. Runtime behavior is unchanged because the added parameter is optional and unused; fixture-test execution on mutated trees is verified by the benchmark harness (M10), not by this catalog.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "X1",
+      "title": "Adversarial: new caller through an aliased import",
+      "parent": "BASE",
+      "purpose": "Caller resolution must not depend on the imported name matching the definition name.",
+      "ops": [
+        {
+          "op": "add_file",
+          "path": "users/alias_caller.py",
+          "content": "\"\"\"Token rotation helper using an aliased import.\"\"\"\n\nfrom auth import tokens as tok\n\n\ndef rotate_now(user_id: str) -> str:\n    \"\"\"Rotate the integration token for ``user_id`` right now.\"\"\"\n    return tok.refresh_token(user_id)\n"
+        }
+      ],
+      "intended_semantic_change": "users.alias_caller.rotate_now calls tok.refresh_token, which resolves to auth.tokens.refresh_token under Python attribute semantics. The caller set becomes non-empty through an aliased call site.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "users.alias_caller.rotate_now"
+            ]
+          },
+          "why": "tok is bound to the auth.tokens module; tok.refresh_token(...) is a call to refresh_token."
+        },
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "users/alias_caller.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "New file."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "auth.interfaces.AuthProvider",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "auth.providers.oidc_provider.OidcAuthProvider",
+              "auth.providers.password_provider.PasswordAuthProvider"
+            ]
+          },
+          "why": "No subclassing involved."
+        },
+        {
+          "key": {
+            "kind": "Signature",
+            "subject": "auth.interfaces.AuthProvider.validate",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "text",
+            "value": "(self, code: str) -> bool"
+          },
+          "why": "Interfaces untouched."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "STALE",
+          "why": "Caller set transitions from empty to {users.alias_caller.rotate_now}."
+        },
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "STALE",
+          "why": "The absence proposition is falsified by an aliased call site."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set unaffected by this mutation."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No interface change; the abstract declaration is untouched."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "auth/session.py untouched; the statelessness proposition is unaffected."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No new or removed call site of AuthService.login."
+        }
+      ],
+      "completeness_absence_involved": true,
+      "completeness_note": "Absence broken through alias resolution; a purely name-matching implementation would miss this caller, which is precisely what the case is designed to expose.",
+      "ground_truth_rationale": "Python resolves tok.refresh_token through the module alias to auth.tokens.refresh_token (language semantics, not tool convention); the call is inside rotate_now, making it the sole caller.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "X2",
+      "title": "Adversarial: re-export without a call",
+      "parent": "BASE",
+      "purpose": "Distinguish references from callers: a re-export adds a textual reference but must not create a caller.",
+      "ops": [
+        {
+          "op": "replace_file",
+          "path": "users/__init__.py",
+          "content": "\"\"\"Users package: models, storage, and use-cases.\"\"\"\n\nfrom auth.tokens import refresh_token as refresh_token\n"
+        }
+      ],
+      "intended_semantic_change": "users/__init__ re-exports refresh_token. A new reference to the symbol exists, but no call site is introduced, so the caller set is unchanged.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "References",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "users.__init__"
+            ]
+          },
+          "why": "The re-export binds the name in users/__init__ without calling it."
+        },
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "users/__init__.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "The package init changes."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "empty_set"
+          },
+          "why": "A re-export is an import binding, not a call."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "The absence claim is about callers, not references; it survives the re-export."
+        },
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Caller set still empty."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set unaffected by this mutation."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No interface change; the abstract declaration is untouched."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "auth/session.py untouched; the statelessness proposition is unaffected."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No new or removed call site of AuthService.login."
+        }
+      ],
+      "completeness_absence_involved": false,
+      "completeness_note": "A name-matching tool that treats any textual occurrence as a caller would wrongly invalidate here; the distinction reference-vs-caller is the independently justified semantics.",
+      "ground_truth_rationale": "Under Python semantics, `from x import y as y` in users/__init__ creates a module attribute binding; a call requires a call expression, and none is added.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "X3",
+      "title": "Adversarial: third AuthProvider implementation added",
+      "parent": "BASE",
+      "purpose": "Implementation-set growth with interface and call graph unchanged.",
+      "ops": [
+        {
+          "op": "add_file",
+          "path": "auth/providers/sso_provider.py",
+          "content": "\"\"\"SAML/SSO-style provider stub backed by assertion headers.\"\"\"\n\nfrom ..errors import InvalidCredentials\nfrom ..interfaces import AuthProvider\n\n\nclass SsoAuthProvider(AuthProvider):\n    \"\"\"Authenticates via a trusted assertion header (fixture stub).\"\"\"\n\n    def __init__(self, trusted_issuer: str) -> None:\n        self._issuer = trusted_issuer\n\n    def authenticate(self, credentials: dict[str, str]) -> str:\n        assertion = credentials.get(\"assertion\", \"\")\n        if not assertion.startswith(self._issuer):\n            raise InvalidCredentials(\"sso\")\n        return assertion_subject(assertion)\n\n    def validate(self, code: str) -> bool:\n        return len(code) == 8\n\n\ndef assertion_subject(assertion: str) -> str:\n    \"\"\"Extract the subject from an assertion string (fixture stub).\"\"\"\n    return assertion.split(\"/\", 1)[-1]\n"
+        }
+      ],
+      "intended_semantic_change": "A third AuthProvider subclass exists. The implementor set grows from two members to three. The interface and all existing call sites are unchanged.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "auth.interfaces.AuthProvider",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "auth.providers.oidc_provider.OidcAuthProvider",
+              "auth.providers.password_provider.PasswordAuthProvider",
+              "auth.providers.sso_provider.SsoAuthProvider"
+            ]
+          },
+          "why": "SsoAuthProvider subclasses AuthProvider in the new module."
+        },
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "auth/providers/sso_provider.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "New file."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Signature",
+            "subject": "auth.interfaces.AuthProvider.validate",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "text",
+            "value": "(self, code: str) -> bool"
+          },
+          "why": "The abstract declaration is untouched."
+        },
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "empty_set"
+          },
+          "why": "The new provider never touches tokens."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "STALE",
+          "why": "Cached two-member set no longer equals the reevaluated three-member set."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Signature unchanged."
+        },
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Absence unaffected."
+        },
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No call sites added or removed by the new provider module."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "auth/session.py untouched; the statelessness proposition is unaffected."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No new or removed call site of AuthService.login."
+        }
+      ],
+      "completeness_absence_involved": false,
+      "completeness_note": null,
+      "ground_truth_rationale": "Implementor membership is determined by subclass declarations; exactly one new `(AuthProvider):` class declaration is added by construction.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "X4",
+      "title": "Adversarial: new eligible source file with no labeled relationships",
+      "parent": "BASE",
+      "purpose": "Universe growth without value change: absence claims must be reevaluated (universe digest changed) and remain true.",
+      "ops": [
+        {
+          "op": "add_file",
+          "path": "users/deletion.py",
+          "content": "\"\"\"Account deletion workflow (independent of authentication).\"\"\"\n\nfrom users.models import Status, User\nfrom users.repository import UserRepository\n\n\ndef schedule_deletion(users: UserRepository, user_id: str, grace_days: int = 30) -> bool:\n    \"\"\"Suspend an account scheduled for deletion; return whether it existed.\"\"\"\n    user = users.get(user_id)\n    if user is None:\n        return False\n    user.status = Status.SUSPENDED\n    users.save(user)\n    return True\n"
+        }
+      ],
+      "intended_semantic_change": "A new eligible source file enters the repository. It defines new symbols and calls only existing users-module functions; it does not touch any labeled auth projection value. The eligible universe for absence claims grows by one unit while the caller set of refresh_token remains empty.",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "users/deletion.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "New file."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "empty_set"
+          },
+          "why": "users/deletion.py contains no token calls; the set is still empty after reevaluation over the grown universe."
+        },
+        {
+          "key": {
+            "kind": "Implementations",
+            "subject": "auth.interfaces.AuthProvider",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "auth.providers.oidc_provider.OidcAuthProvider",
+              "auth.providers.password_provider.PasswordAuthProvider"
+            ]
+          },
+          "why": "No new subclass."
+        },
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.service.AuthService.login",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "set",
+            "members": [
+              "users.service.UserService.login"
+            ]
+          },
+          "why": "deletion.py does not call login; it touches only repository and model state."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "The universe digest changed, forcing reevaluation; the reevaluated caller set is still empty, so the absence claim survives with a fresh attestation (spec §8.1: universe change dirties the query; §18 value-unchanged cutoff keeps dependents green)."
+        },
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Value unchanged after reevaluation."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Implementor set unaffected by this mutation."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No interface change; the abstract declaration is untouched."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "auth/session.py untouched; the statelessness proposition is unaffected."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "No new or removed call site of AuthService.login."
+        }
+      ],
+      "completeness_absence_involved": true,
+      "completeness_note": "This is the universe-growth-without-absence-change counterpart to R2: eligibility expansion alone must not be treated as absence falsification.",
+      "ground_truth_rationale": "The new module's text contains no occurrence of refresh_token and no import of auth.tokens; its only auth-adjacent property is none — it operates purely on the users repository.",
+      "provenance": [
+        "fixture-construction",
+        "textual-reference-cross-check",
+        "hand-reviewed-call-graph"
+      ]
+    },
+    {
+      "id": "X5",
+      "title": "Adversarial: syntax/indexability failure degrades coverage",
+      "parent": "BASE",
+      "purpose": "Coverage-certificate degradation: a file the semantic backend cannot process must downgrade absence claims to UNKNOWN, never keep them authoritative.",
+      "ops": [
+        {
+          "op": "add_file",
+          "path": "users/broken.py",
+          "content": "\"\"\"Module with a deliberate syntax error (indexability fixture).\"\"\"\n\ndef fragment(  # NOTE: colon and body intentionally missing\n"
+        }
+      ],
+      "intended_semantic_change": "A file is added that a Python parser cannot parse. Whatever the semantic backend, it cannot establish resolved-reference coverage over this file, so the coverage certificate for completeness-sensitive queries is downgraded. No valid Python symbol relationships change (the file defines no importable symbols).",
+      "affected_projections": [
+        {
+          "key": {
+            "kind": "FileContent",
+            "subject": "users/broken.py",
+            "scope": "File"
+          },
+          "expected": {
+            "type": "changed"
+          },
+          "why": "New (unparseable) file."
+        }
+      ],
+      "unchanged_projections": [
+        {
+          "key": {
+            "kind": "Callers",
+            "subject": "auth.tokens.refresh_token",
+            "scope": "Repository"
+          },
+          "expected": {
+            "type": "empty_set"
+          },
+          "why": "The broken file defines no calls; the true caller set is still empty."
+        }
+      ],
+      "artifact_consequences": [
+        {
+          "artifact": "ART_NO_CALLERS_FACT",
+          "before": "VALID",
+          "after": "UNKNOWN",
+          "why": "The completeness requirements for an authoritative absence claim are no longer satisfied by the coverage certificate (unparseable unit in the eligible universe); the claim is neither confirmed nor falsified (spec §8.2: empty result + unsatisfied requirements = UNKNOWN)."
+        },
+        {
+          "artifact": "ART_CALLERS_REFRESH",
+          "before": "VALID",
+          "after": "UNKNOWN",
+          "why": "Same completeness downgrade for the absence-bearing structural set."
+        },
+        {
+          "artifact": "ART_PROVIDER_SET",
+          "before": "VALID",
+          "after": "UNKNOWN",
+          "why": "Implementations is a completeness-sensitive projection: the unparseable unit degrades the coverage certificate, so the repository-scope requirement 'every relevant semantic unit participated' is unsatisfiable (spec §8.2)."
+        },
+        {
+          "artifact": "ART_VALIDATE_SIG",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Signature evaluation is scoped to the declaring module (auth/interfaces.py), which parses; the coverage degradation does not reach this query's requirements."
+        },
+        {
+          "artifact": "ART_STATELESS",
+          "before": "VALID",
+          "after": "VALID",
+          "why": "Depends on parseable file contents only; no completeness-sensitive repository query is in its dependency set."
+        },
+        {
+          "artifact": "ART_LOGIN_CALLERS",
+          "before": "VALID",
+          "after": "UNKNOWN",
+          "why": "Callers is a completeness-sensitive projection: under the degraded coverage certificate the absence/coverage requirements are unsatisfied regardless of the (still-empty) result (spec §8.2)."
+        }
+      ],
+      "completeness_absence_involved": true,
+      "completeness_note": "Eligible universe unchanged in membership but coverage evidence degraded: one unit cannot be semantically indexed. Expected engine behavior is abstention, which the benchmark scores as correct abstention rather than as invalidation.",
+      "ground_truth_rationale": "The file's content is syntactically invalid Python by construction (unterminated def header); no semantic backend can claim coverage over it, and completeness-sensitive absence claims must abstain rather than assert.",
+      "provenance": [
+        "fixture-construction",
+        "python-import-semantics"
+      ]
+    }
+  ]
+}

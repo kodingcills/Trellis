@@ -81,7 +81,7 @@ nodes:
   - id: M2
     objective: Synthetic oracle fixture + mutation catalog with hand-labeled expected validity, written BEFORE sophisticated invalidation exists (spec §26, §33 oracle-first).
     dependencies: [M0]
-    status: pending
+    status: completed
     deliverables:
       - fixtures/python_auth/ (~30-50 files: auth, payments, tests; real-shaped)
       - mutation catalog R0-R4+ as concrete diffs (§26): R0 absence, R1 unrelated, R2 new caller, R3 value-preserving implementation change, R4 architecture change
@@ -100,8 +100,11 @@ nodes:
       - any invalidation machinery
       - the pinned OSS fixture (M12)
     evidence:
-      - fixture + catalog + labels committed
-      - independent review record in .agent/reviews/
+      - fixture fixtures/python_auth/base (35 stdlib-only .py modules, 18-test unittest suite OK) + fixtures/oracle/{README.md, catalog.json} (R0-R4 + adversarial X1-X5, 6 seeded artifacts, full consequence enumeration)
+      - trellis-oracle crate: 14 dataset-integrity tests incl. independent textual cross-checks (caller sets, implementor counts, X5 unparseability) and consequence-table completeness regression
+      - gate M2_ORACLE_REVIEW satisfied — fresh review cycle 2 verdict GREEN / COMMIT_ALLOWED (.agent/reviews/2026-09-08-M2-cycle2.md; cycle 1 REPAIR_REQUIRED record: 2026-09-08-M2-cycle1.md)
+      - oracle independence verified: labels authored before any engine exists; provenance restricted to fixture-construction / python-import-semantics / textual-reference-cross-check / hand-reviewed-call-graph
+      - run log with unittest output: .agent/runs/M2/2026-09-08-synthetic-oracle-fixture.md
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M3

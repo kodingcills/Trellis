@@ -1,0 +1,12 @@
+[package]
+name = "trellis-oracle"
+description = "Mechanical validation of the M2 synthetic oracle fixture and mutation catalog (Benchmark A ground truth)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
