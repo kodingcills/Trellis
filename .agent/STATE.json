@@ -3,9 +3,9 @@
   "updated_at": "2026-09-08",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "173f5a09af25c90c497159e094a886c558132790",
-  "current_green_commit_subject": "feat(program): add deterministic Python syntax projections (M3)",
-  "current_green_commit_note": "M3 green checkpoint. Product crates trellis-core/trellis-oracle untouched; trellis-program added; trellis-source extended (read_tree, __pycache__ excludes). GLOBAL_GREEN re-verified at this checkpoint (95 tests, clippy -D warnings, fmt; fixture unittest 18 OK).",
+  "current_green_commit": "cc76bc111ef3a2ee3d1401dfd657ba2814af8155",
+  "current_green_commit_subject": "feat(store): add durable SQLite metadata and local CAS (M4)",
+  "current_green_commit_note": "M4 green checkpoint. Product crates trellis-core/source/oracle/program untouched (core gained additive from_persisted); trellis-cas + trellis-store added. GLOBAL_GREEN re-verified at this checkpoint (124 tests, clippy -D warnings, fmt; fixture unittest 18 OK).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-08",
     "GLOBAL_GREEN": {
@@ -21,30 +21,31 @@
     "M0",
     "M1",
     "M2",
-    "M3"
+    "M3",
+    "M4"
   ],
   "active_nodes": [],
   "blocked_nodes": [],
   "next_candidates": [
-    "M4"
+    "M5"
   ],
-  "next_candidates_note": "M4 (persistence) is the sole unblocked node: M5 depends on [M3, M4] and M3 is complete; M6 depends on M2+M5. Follow repository truth: M4 next.",
+  "next_candidates_note": "M5 (dependency engine) now unblocked (deps M3+M4 complete). It consumes ProgramIndex.changed_symbols and the M4 store, and produces the reverse indexes + dirty-candidate discovery that M6 red/green needs.",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M3",
-    "kind": "3 fresh adversarial review cycles: cycle 1 REPAIR_REQUIRED (3 BLOCKER + 2 IMPORTANT) -> cycle 2 REPAIR_REQUIRED (1 IMPORTANT) -> cycle 3 GREEN / COMMIT_ALLOWED",
+    "node": "M4",
+    "kind": "4 fresh adversarial review cycles: cycle 1 REPAIR_REQUIRED (4 BLOCKER + 2 IMPORTANT) -> cycle 2 REPAIR_REQUIRED (1 BLOCKER + 1 IMPORTANT) -> cycle 3 REPAIR_REQUIRED (1 IMPORTANT) -> cycle 4 GREEN / COMMIT_ALLOWED",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-08-M3-cycle3.md (cycles 1-2 linked therein)",
+    "record": ".agent/reviews/2026-09-08-M4-cycle4.md (cycles 1-3 linked therein)",
     "open_findings": [],
-    "dispositioned": "5 OPTIONAL -> BACKLOG; contract amendment (semantic = explicit UNSUPPORTED; ProjectionObservation -> M5) recorded in DECISIONS per owner directive",
-    "deviation_note": "None."
+    "dispositioned": "6 OPTIONAL -> BACKLOG (model=None round-trip test, schema_version try_from, schema_meta classification, conflicting-duplicate Constraint, dir-fsync, Debug encodings, insertion-order test strengthening, impl dedup)",
+    "deviation_note": "None. Traits/migrations deferral and artifacts->snapshots FK drop recorded in DECISIONS."
   },
   "last_gate_result": {
     "ran_at": "2026-09-08",
-    "gate": "GLOBAL_GREEN + M3_QUERY_ACCEPTANCE",
+    "gate": "GLOBAL_GREEN + M4_PERSISTENCE_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "95 passed / 0 failed (39 core + 14 oracle + 22 program + 20 source)",
+      "tests": "124 passed / 0 failed (6 cas + 39 core + 14 oracle + 22 program + 20 source + 23 store)",
       "clippy": "clean at -D warnings",
       "fmt": "clean",
       "fixture_unittest": "18 passed, OK (baseline fixture)"
@@ -57,6 +58,6 @@
   "hygiene_notes": [
     "HARDENING (owner directive): control plane + AGENTS.md + frozen spec are version-controlled; spec canonical path is docs/architecture/TRELLIS_V0_1_FROZEN.md (single authoritative copy).",
     "Superseded owner decision: `.agent/` was gitignored during bootstrap; reversal recorded in DECISIONS.",
-    "origin/main at 2ea7636; commits 7996c1b (M2) onward are local until push is authorized per REMOTE_POLICY."
+    "origin/main at fac5f5f (M3 STATE record); commits 7996c1b (M2), 173f5a0 (M3), cc76bc1 (M4) onward are local until push is authorized per REMOTE_POLICY."
   ]
 }
