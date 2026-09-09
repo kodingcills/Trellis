@@ -267,6 +267,44 @@ fn strength_key(a: &ValidationAttestation) -> (u8, u8, u64) {
     (authority_rank, verification_rank, a.created_at())
 }
 
+impl ValidationAttestation {
+    /// Reconstruct an attestation from persisted state.
+    ///
+    /// Unlike [`Self::for_derivation`], capture trust is restored from the
+    /// persisted record rather than re-derived: persistence is not a second
+    /// authority for trust, it carries forward what was established when
+    /// the attestation was created (spec §12; storage must not change
+    /// semantics established by M0–M3).
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_persisted(
+        attestation_id: AttestationId,
+        artifact_id: ArtifactId,
+        target_source_snapshot: SnapshotId,
+        target_semantic_snapshot: Option<SnapshotId>,
+        validity: Validity,
+        authority: Authority,
+        verification_level: VerificationLevel,
+        verifier: Option<VerifierId>,
+        evidence: Vec<EvidenceRef>,
+        capture_trust: CaptureTrust,
+        created_at: Timestamp,
+    ) -> Self {
+        Self {
+            attestation_id,
+            artifact_id,
+            target_source_snapshot,
+            target_semantic_snapshot,
+            validity,
+            authority,
+            verification_level,
+            verifier,
+            evidence,
+            capture_trust,
+            created_at,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

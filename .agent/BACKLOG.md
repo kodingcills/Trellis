@@ -37,5 +37,13 @@ Format: one line per item, tagged with the frozen-spec trigger that would justif
 - Degenerate tree containing both `auth.py` and `auth/__init__.py` maps both to ModuleId("auth"); document or reject the collision (M3 review cycle 1, OPTIONAL).
 - `changed_symbols_impl`/`file_digest_impl` public inherent methods duplicate trait impls; fold into the trait impl or keep one private (M3 review cycle 2, OPTIONAL).
 - Degradation tests should pin `Unsupported::ParseIncomplete` via `matches!` rather than only `!is_proven` (M3 review cycle 2, OPTIONAL).
+- Producer model=None persistence round-trip test (code-verified symmetric; lock in with an assertion in an existing round-trip test) (M4 review cycle 4, OPTIONAL).
+- artifacts.schema_version i64→u32 `as` cast silently wraps tampered values; use u32::try_from → Corrupt (M4 review cycle 4, OPTIONAL).
+- conn_schema_version: corrupt non-numeric version surfaces as Sqlite constraint error, not Corrupt — reclassify (M4 review cycle 4, OPTIONAL).
+- Conflicting artifact duplicate (same canonical id, different content) silently first-wins via INSERT OR IGNORE; on PK collision compare persisted columns and return Constraint, symmetric with attestations (M4 review cycle 2, OPTIONAL — pre-existing, caller-supplied-id contract).
+- CAS directory fsync after atomic rename (POSIX durability of the directory entry) — document/verify at the M10 benchmark phase (M4 review cycle 1, OPTIONAL).
+- Storage enum encodings derived from Rust Debug rendering (`{:?}`); replace with canonical variant names before any cross-version persistence exists (M4 review cycle 1, OPTIONAL).
+- Per-object schema_version interpretation: global schema_meta gate + artifact envelope column today; document that row-level objects are guarded by the global version gate (M4 review cycle 1, OPTIONAL).
+- Strengthen insertion-order identity test to vary dependency input order (M4 review cycle 1, OPTIONAL).
 - trellis-program declares trellis-source as a runtime dependency though only tests use it today; move to dev-dependencies or keep until M5 wires the consumer (M3 review cycle 3, OPTIONAL).
 - Backend-identity field on projection answers: vacuous while only one backend exists; add when the SCIP provider lands (M3 review cycle 1, OUT_OF_SCOPE for M3).

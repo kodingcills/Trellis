@@ -137,7 +137,7 @@ nodes:
   - id: M4
     objective: Persistence — SQLite (WAL) metadata, local CAS, append-only attestation storage, crash-consistent publication (spec §19).
     dependencies: [M0]
-    status: pending
+    status: completed
     deliverables:
       - trellis-store crate: MetadataStore trait + SQLite implementation with migrations
       - trellis-cas crate: BlobStore trait + fs store with atomic write protocol (§19)
@@ -157,8 +157,10 @@ nodes:
       - PostgreSQL, remote CAS, any network storage
       - garbage-collection policy beyond orphan sweep
     evidence:
-      - crash-consistency tests
-      - DECISIONS entries for schema v1 and migration approach
+      - commits recorded in STATE.json current_green_commit (M4 checkpoint): trellis-cas (FsCas, 6 tests) + trellis-store (SQLite WAL schema v1, 23 persistence tests) + core from_persisted
+      - M4_PERSISTENCE_ACCEPTANCE satisfied: blob-first (register_blob durability gate + require_blob + FK), append-only attestations (duplicate/foreign/monotonic rejections), transaction rollback, schema-version rejection, insertion-order + absolute-path identity invariance, restart/recovery A/B with domain+identity equality, corrupt-state explicit Corrupt across full decode surface (cost/evidence/producer/channels tamper tests), collect_orphans GC
+      - review: 4 fresh-context cycles (REPAIR_REQUIRED x3 → GREEN/COMMIT_ALLOWED) — .agent/reviews/2026-09-08-M4-cycle{1,2,3,4}.md
+      - run log: .agent/runs/M4/2026-09-08-durable-persistence.md
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M5

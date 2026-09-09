@@ -31,6 +31,18 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M4_PERSISTENCE_ACCEPTANCE:
+    criteria:
+      - WAL mode enabled and tested; foreign keys on; multi-row ops transactional
+      - CAS put idempotent (same bytes → same id, no duplicate payload), corrupted/missing blobs detected, temp writes never exposed as committed
+      - blob-first metadata-second ordering; no committed metadata can reference a non-durable blob
+      - domain identity never derived from rowid/insertion order/timestamps/absolute paths; canonical IDs persisted
+      - duplicate canonical objects idempotent with identical identity
+      - attestations append-only; artifact/attestation mismatch rejected; duplicate attestation identity rejected
+      - unsupported schema version explicitly rejected, no silent reinterpretation
+      - restart/recovery acceptance: process A persists → process B reopens → domain+identity equality, attestation ordering preserved
+      - M0-M3 tests unchanged and green
+    evidence_required: run log with test names + fresh review record
   M3_QUERY_ACCEPTANCE:
     criteria:
       - deterministic index/projection results across repeated runs and traversal orders

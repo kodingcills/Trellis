@@ -1,0 +1,19 @@
+[package]
+name = "trellis-store"
+description = "Durable metadata store: SQLite (WAL), canonical domain persistence, append-only attestations (spec §19)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+trellis-core = { path = "../trellis-core" }
+trellis-cas = { path = "../trellis-cas" }
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
+trellis-source = { path = "../trellis-source" }
+trellis-cas = { path = "../trellis-cas" }
