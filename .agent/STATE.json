@@ -3,18 +3,18 @@
   "updated_at": "2026-09-14",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "131c979",
-  "current_green_commit_subject": "feat(core,engine): add universe + coverage certificates (M7)",
-  "current_green_commit_note": "M7 green checkpoint. (Q, U, C) bindings for completeness-sensitive observations, backend-produced CoverageCertificate (syntax backend claims Unproven for reference/inheritance capabilities), std-only CompletenessEvaluator, \u00a78.1 dirtying (indexer bumps caught with empty changed sets), coverage-downgrade \u2192 UNKNOWN contract rule; X5 matched end-to-end. GLOBAL_GREEN re-verified (175 tests, clippy -D warnings, fmt).",
+  "current_green_commit": "0fe0b8e",
+  "current_green_commit_subject": "feat(scip): add authoritative SCIP freeze adapter (M8)",
+  "current_green_commit_note": "M8 green checkpoint. trellis-scip crate (SCIP knowledge confined there): batch ingest via the real scip::symbol parser, \u00a76 freeze rule with change classifier (both \u00a76 examples tested), honesty-floored CoverageCertificate, content-derived SemanticSnapshotId. Engine FrozenSemanticSource drives authoritative semantic transitions. GLOBAL_GREEN re-verified (187 tests, clippy -D warnings, fmt).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-14",
     "GLOBAL_GREEN": {
-      "cargo_test": "pass \u2014 175 passed / 0 failed (6 cas + 43 core + 43 engine + 14 oracle + 22 program + 20 source + 27 store)",
+      "cargo_test": "pass \u2014 187 passed / 0 failed (6 cas + 43 core + 43 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store + 4 freeze)",
       "clippy_D_warnings": "pass \u2014 zero warnings",
       "fmt_check": "pass"
     },
     "node_gates": {
-      "M7_ABSENCE_ACCEPTANCE": "pass \u2014 all 9 criteria PASS with named tests; X5 oracle row matched end-to-end; indexer-bump/universe-growth/degraded-coverage semantics verified. Run log .agent/runs/M7/2026-09-14-universe-coverage.md"
+      "M8_FREEZE_ACCEPTANCE": "pass \u2014 all 8 criteria PASS with named tests; both \u00a76 examples end-to-end; certificate honesty floor demonstrated both ways; callers exact vs oracle R2/X1 shapes. Run log .agent/runs/M8/2026-09-14-scip-freeze.md"
     }
   },
   "completed_nodes": [
@@ -25,32 +25,33 @@
     "M4",
     "M5",
     "M6",
-    "M7"
+    "M7",
+    "M8"
   ],
   "active_nodes": [
-    "M8"
+    "M9"
   ],
   "blocked_nodes": [],
   "next_candidates": [
-    "M8"
+    "M9"
   ],
-  "next_candidates_note": "M8 (authoritative SCIP freeze adapter) now unblocked (deps M3+M4 complete). It consumes the M7 CoverageCertificate types and adds: SCIP batch ingest into the normalized program graph (SCIP knowledge ONLY in the adapter), SemanticSnapshotId production at freeze points, the \u00a76 freeze rule, and CoverageCertificate population from SCIP evidence.",
+  "next_candidates_note": "M9 (provisional live overlay) now unblocked (deps M8+M6 complete). It consumes the frozen SCIP graph + reconcile delta + tree-sitter for mid-task navigation, stamps backend identity, appends PROVISIONAL attestations (never authoritative), and provides the freeze-upgrade path (append AUTHORITATIVE, prior attestations unchanged).",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M7",
+    "node": "M8",
     "kind": "1 fresh-context adversarial review cycle: GREEN / COMMIT_ALLOWED (full candidate diff review)",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-14-M7-cycle1.md",
+    "record": ".agent/reviews/2026-09-14-M8-cycle1.md",
     "open_findings": [],
-    "dispositioned": "2 OPTIONAL \u2192 BACKLOG (M6 x5-test rename \u2014 semantics identical; Unobserved path coverage \u2014 closed post-review with regression test unobserved_completeness_dirty_degrades_to_unknown).",
-    "deviation_note": "None."
+    "dispositioned": "1 OPTIONAL \u2192 closed in code (module_of dotted-module misattribution in the references map; regression test module_level_reference_attributes_full_module added).",
+    "deviation_note": "Reduced-index freeze harness documented (real scip-python runs arrive with M12)."
   },
   "last_gate_result": {
     "ran_at": "2026-09-14",
-    "gate": "GLOBAL_GREEN + M7_ABSENCE_ACCEPTANCE",
+    "gate": "GLOBAL_GREEN + M8_FREEZE_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "175 passed / 0 failed (6 cas + 43 core + 43 engine + 14 oracle + 22 program + 20 source + 27 store)",
+      "tests": "187 passed / 0 failed (6 cas + 43 core + 43 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store + 4 freeze)",
       "clippy": "clean at -D warnings",
       "fmt": "clean"
     }

@@ -251,7 +251,7 @@ nodes:
   - id: M8
     objective: Authoritative SCIP freeze adapter — batch ingest, authoritative semantic snapshots, freeze rule (spec §9.1, §9.3, §6).
     dependencies: [M3, M4]
-    status: active
+    status: completed
     deliverables:
       - scip ingestion into normalized program graph (SCIP knowledge ONLY here, §8.2)
       - SemanticSnapshotId production at freeze points
@@ -270,12 +270,15 @@ nodes:
     evidence:
       - freeze-rule acceptance tests with both §6 examples
       - run log with freeze cost measurements (feeds M10)
+      - commit 0fe0b8e "feat(scip): add authoritative SCIP freeze adapter (M8)"; trellis-scip crate (ingest/freeze/ScipGraph/ScipIdentity), FrozenSemanticSource in engine
+      - M8_FREEZE_ACCEPTANCE satisfied: all 8 criteria PASS; both §6 examples end-to-end; honesty floor both ways; callers exact vs oracle R2/X1; run log .agent/runs/M8/2026-09-14-scip-freeze.md
+      - review: 1 fresh-context cycle GREEN/COMMIT_ALLOWED (OPTIONAL closed in code with regression test) — .agent/reviews/2026-09-14-M8-cycle1.md; 187 tests green, clippy clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M9
     objective: Provisional live overlay — frozen SCIP + source delta + tree-sitter between freezes (spec §9.2).
     dependencies: [M8, M6]
-    status: pending
+    status: active
     deliverables:
       - overlay view = last frozen SCIP graph + reconcile delta + tree-sitter
       - mid-task queries served from overlay with backend-identity stamping
