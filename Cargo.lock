@@ -417,6 +417,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "trellis-engine"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "tempfile",
+ "trellis-cas",
+ "trellis-core",
+ "trellis-oracle",
+ "trellis-program",
+ "trellis-source",
+ "trellis-store",
+]
+
+[[package]]
 name = "trellis-oracle"
 version = "0.1.0"
 dependencies = [
@@ -452,6 +466,7 @@ dependencies = [
  "tempfile",
  "trellis-cas",
  "trellis-core",
+ "trellis-program",
  "trellis-source",
 ]
 

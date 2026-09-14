@@ -158,6 +158,19 @@ pub enum Subject {
 }
 
 impl Subject {
+    /// The canonical subject string (variant payload, unquoted).
+    #[must_use]
+    pub fn canonical(&self) -> &str {
+        match self {
+            Subject::File(s)
+            | Subject::Symbol(s)
+            | Subject::Module(s)
+            | Subject::Text(s)
+            | Subject::ConfigKey(s)
+            | Subject::Tool(s) => s,
+        }
+    }
+
     fn validate(&self) -> Result<(), DomainError> {
         let empty = match self {
             Subject::File(s)
@@ -211,6 +224,43 @@ pub struct Projection {
 }
 
 impl Projection {
+    /// Canonical content identity of this projection key (spec §7): BLAKE3
+    /// over the domain-tagged canonical encoding of
+    /// `(kind, subject, property, scope)`. Every identity-bearing field
+    /// participates — two projections that differ only in scope have
+    /// different identities.
+    #[must_use]
+    pub fn id(&self) -> crate::ids::ProjectionId {
+        use crate::canonical::{write_str, write_u64};
+        use crate::ids::{ContentHash, HashAlgo};
+        let variant = match self.subject {
+            Subject::File(_) => "File",
+            Subject::Symbol(_) => "Symbol",
+            Subject::Module(_) => "Module",
+            Subject::Text(_) => "Text",
+            Subject::ConfigKey(_) => "ConfigKey",
+            Subject::Tool(_) => "Tool",
+        };
+        let mut buf = Vec::new();
+        write_str(&mut buf, "trellis.projection.v1");
+        write_str(&mut buf, self.kind.keyword());
+        // The subject variant participates: two projections whose payloads
+        // coincide but whose subject kinds differ are different keys.
+        write_str(&mut buf, variant);
+        write_str(&mut buf, self.subject.canonical());
+        write_str(&mut buf, self.property.kind().keyword());
+        write_u64(
+            &mut buf,
+            match self.scope {
+                Scope::File => 0,
+                Scope::Module => 1,
+                Scope::Package => 2,
+                Scope::Repository => 3,
+            },
+        );
+        crate::ids::ProjectionId::from_hash(ContentHash::compute(HashAlgo::Blake3, &buf))
+    }
+
     /// General constructor. Returns an error if the subject is empty or the
     /// property is inconsistent with the kind.
     pub fn new(
@@ -362,6 +412,17 @@ impl Projection {
     #[must_use]
     pub const fn scope(&self) -> Scope {
         self.scope
+    }
+
+    /// Canonical scope name used in durable encodings.
+    #[must_use]
+    pub const fn scope_name(&self) -> &'static str {
+        match self.scope {
+            Scope::File => "File",
+            Scope::Module => "Module",
+            Scope::Package => "Package",
+            Scope::Repository => "Repository",
+        }
     }
 
     /// Construction-time invariant check. Succeeds for every value

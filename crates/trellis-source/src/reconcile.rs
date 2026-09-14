@@ -12,7 +12,7 @@ use crate::manifest::{build_manifest, Manifest, ManifestOptions};
 /// The exact changed-file set between a stored manifest and the current
 /// tree. All vectors are sorted by path. A rename appears as
 /// removal + addition (spec §33 M1: add/modify/delete).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChangedSet {
     /// Paths present now but absent from the stored manifest.
     pub added: Vec<String>,

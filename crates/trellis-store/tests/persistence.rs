@@ -9,6 +9,8 @@ use trellis_core::ids::{
     ArtifactId, AttestationId, BlobId, ContentHash, DerivationId, EnvironmentFingerprintId,
     HashAlgo, ProjectionId, RepositoryId, SnapshotId, VerifierId,
 };
+use trellis_core::observation_id::canonical_observation_id;
+use trellis_core::projection::Projection;
 use trellis_core::projection::ProjectionObservation;
 use trellis_core::validity::{Authority, CaptureChannel, Validity, VerificationLevel};
 use trellis_store::prelude::*;
@@ -349,13 +351,13 @@ fn projection_observation_roundtrip() {
     )
     .unwrap();
     store.put_snapshot(&snap).unwrap();
-    let obs = ProjectionObservation::new(
-        trellis_core::ids::ProjectionObservationId::from_hash(h(40)),
-        ProjectionId::from_hash(h(41)),
-        SnapshotId::from_hash(h(60)),
-        h(41),
-        Some(BlobId::from_hash(h(42))),
-    );
+    // Canonical identity: the id derives from (projection, value, snapshot).
+    let proj_id = ProjectionId::from_hash(h(41));
+    let value = h(41);
+    let snapshot = SnapshotId::from_hash(h(60));
+    let id = canonical_observation_id(&proj_id, &value, &snapshot);
+    let obs =
+        ProjectionObservation::new(id, proj_id, snapshot, value, Some(BlobId::from_hash(h(42))));
     store.put_projection_observation(&obs).unwrap();
     store.put_projection_observation(&obs).unwrap(); // idempotent
     let loaded = store.get_projection_observation(&obs.id()).unwrap();
@@ -773,4 +775,145 @@ fn corrupt_producer_model_is_explicit_not_silently_dropped() {
         matches!(err, trellis_store::StoreError::Corrupt(_)),
         "mistyped producer model must error explicitly, got {err:?}"
     );
+}
+
+/// Tampered value_digest → both direct loading and bulk reads fail closed
+/// (canonical-id re-derivation, spec §19).
+#[test]
+fn tampered_observation_digest_fails_closed_everywhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = dir.path().join("metadata.db");
+    let snapshot = SnapshotId::from_hash(h(60));
+    {
+        let mut store = Store::open(&db).unwrap();
+        let snap_row = trellis_core::snapshot::Snapshot::new(
+            snapshot,
+            RepositoryId::from_hash(h(61)),
+            None,
+            trellis_core::ids::ManifestId::from_hash(h(62)),
+            None,
+            trellis_core::ids::EnvironmentFingerprintId::from_hash(h(63)),
+            None,
+            1_000,
+        )
+        .unwrap();
+        store.put_snapshot(&snap_row).unwrap();
+        let proj_id = ProjectionId::from_hash(h(41));
+        let value = h(41);
+        let id = canonical_observation_id(&proj_id, &value, &snapshot);
+        let obs = ProjectionObservation::new(id, proj_id, snapshot, value, None);
+        store.put_projection_observation(&obs).unwrap();
+    }
+    {
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        // A parse-VALID but different digest: parsing alone accepts it;
+        // only canonical-ID re-derivation detects the corruption.
+        conn.execute(
+            "UPDATE projection_observations SET value_digest = ?1",
+            [h(42).to_string()],
+        )
+        .unwrap();
+    }
+    let store = Store::open(&db).unwrap();
+    // Bulk path (discovery loader).
+    let err = store.all_projection_observations().unwrap_err();
+    assert!(matches!(err, trellis_store::StoreError::Corrupt(_)));
+    // Direct path: same centralized re-derivation check.
+    let digest_err = store
+        .get_projection_observation(&canonical_observation_id(
+            &ProjectionId::from_hash(h(41)),
+            &h(41),
+            &snapshot,
+        ))
+        .unwrap_err();
+    assert!(matches!(digest_err, trellis_store::StoreError::Corrupt(_)));
+}
+
+/// Forged observation id (not the canonical derivation) rejected at
+/// ingress.
+#[test]
+fn forged_observation_id_rejected_at_ingress() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("metadata.db")).unwrap();
+    let forged = ProjectionObservation::new(
+        trellis_core::ids::ProjectionObservationId::from_hash(h(44)),
+        ProjectionId::from_hash(h(41)),
+        SnapshotId::from_hash(h(60)),
+        h(41),
+        None,
+    );
+    let err = store.put_projection_observation(&forged).unwrap_err();
+    assert!(matches!(err, trellis_store::StoreError::Constraint(_)));
+}
+
+/// Composite publication failure: observation whose snapshot FK is absent
+/// fails on the final insert — descriptor and anchor writes roll back with
+/// it (no partially persisted discovery state).
+#[test]
+fn composite_publication_rolls_back_on_final_insert_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("metadata.db")).unwrap();
+    let p = Projection::signature("auth.tokens.refresh_token").unwrap();
+    // Build the observation directly (canonical id) — the store-level
+    // composite is under test, not the engine helpers.
+    let proj_id = p.id();
+    let value = h(41);
+    let snapshot = SnapshotId::from_hash(h(60));
+    let id = canonical_observation_id(&proj_id, &value, &snapshot);
+    let observed = ProjectionObservation::new(id, proj_id, snapshot, value, None);
+    // NO snapshot row for h(60): the observation INSERT violates the FK.
+    let err = store
+        .record_observation_record(&p, &observed, "auth/tokens.py")
+        .unwrap_err();
+    assert!(matches!(err, trellis_store::StoreError::Sqlite(_)));
+    // Nothing survived: no descriptor, no anchor, no observation.
+    assert!(matches!(
+        store.projection_descriptor(&p.id()),
+        Err(trellis_store::StoreError::Corrupt(_))
+    ));
+    assert!(matches!(
+        store.observation_anchor(&id),
+        Err(trellis_store::StoreError::Corrupt(_))
+    ));
+    assert!(store.all_projection_observations().unwrap().is_empty());
+}
+
+/// The real anchor-conflict branch: the SAME observation id submitted with
+/// a different anchor is rejected; the existing anchor is unchanged.
+#[test]
+fn composite_anchor_conflict_rejected_and_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::open(dir.path().join("metadata.db")).unwrap();
+    store.put_snapshot(&snapshot_row()).unwrap();
+    let p = Projection::signature("auth.tokens.refresh_token").unwrap();
+    let proj_id = p.id();
+    let value = h(41);
+    let snapshot = SnapshotId::from_hash(h(60));
+    let id = canonical_observation_id(&proj_id, &value, &snapshot);
+    let observed = ProjectionObservation::new(id, proj_id, snapshot, value, None);
+    store
+        .record_observation_record(&p, &observed, "auth/tokens.py")
+        .unwrap();
+    // Same observation, conflicting anchor path.
+    let err = store
+        .record_observation_record(&p, &observed, "payments/pricing.py")
+        .unwrap_err();
+    assert!(matches!(err, trellis_store::StoreError::Constraint(_)));
+    // Existing anchor unchanged; exactly one anchor row.
+    let store = Store::open(dir.path().join("metadata.db")).unwrap();
+    assert_eq!(store.observation_anchor(&id).unwrap(), "auth/tokens.py");
+}
+
+fn snapshot_row() -> trellis_core::snapshot::Snapshot {
+    trellis_core::snapshot::Snapshot::new(
+        SnapshotId::from_hash(h(60)),
+        RepositoryId::from_hash(h(61)),
+        None,
+        trellis_core::ids::ManifestId::from_hash(h(62)),
+        None,
+        trellis_core::ids::EnvironmentFingerprintId::from_hash(h(63)),
+        None,
+        1_000,
+    )
+    .unwrap()
 }

@@ -25,6 +25,7 @@ pub mod attestation;
 pub mod canonical;
 pub mod error;
 pub mod ids;
+pub mod observation_id;
 pub mod projection;
 pub mod snapshot;
 pub mod validity;
@@ -46,6 +47,7 @@ pub mod prelude {
         ProjectionObservationId, RepositoryId, SemanticSnapshotId, SnapshotId, Timestamp,
         VerifierId,
     };
+    pub use crate::observation_id::canonical_observation_id;
     pub use crate::projection::{
         Projection, ProjectionKind, ProjectionObservation, Property, Scope, Subject,
     };

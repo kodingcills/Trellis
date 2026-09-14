@@ -166,7 +166,7 @@ nodes:
   - id: M5
     objective: Dependency engine — projection observations, reverse indexes, dirty-candidate discovery (spec §18 steps 1-3).
     dependencies: [M3, M4]
-    status: pending
+    status: active
     deliverables:
       - trellis-engine crate (§24)
       - projection observation recording tied to snapshots

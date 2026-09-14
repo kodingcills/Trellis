@@ -128,9 +128,16 @@ impl Store {
                     [SCHEMA_VERSION.to_string()],
                 )?;
                 conn.execute_batch(SCHEMA)?;
+                conn.execute_batch(ENGINE_SCHEMA)?;
                 Ok(())
             }
-            Some(v) if v == SCHEMA_VERSION => Ok(()),
+            Some(v) if v == SCHEMA_VERSION => {
+                // Additive engine schema (M5): idempotent, compatible with
+                // v1 rows — no reinterpretation of persisted objects
+                // (recorded in DECISIONS).
+                conn.execute_batch(ENGINE_SCHEMA)?;
+                Ok(())
+            }
             Some(v) => Err(StoreError::UnsupportedSchema {
                 found: v,
                 supported: SCHEMA_VERSION,
@@ -253,6 +260,37 @@ CREATE TABLE IF NOT EXISTS cas_objects (
 );
 "#;
 
+/// Additive M5 engine schema: the discovery reverse indexes. Idempotent;
+/// safe to run on any v1 database; reinterprets no persisted rows
+/// (recorded in DECISIONS).
+/// - `symbol_locations`: symbol → defining source unit(s). Composite PK
+///   preserves ALL historical locations (a symbol recorded in two files
+///   keeps both rows — over-approximation is sound, omission is not).
+/// - `projection_descriptors`: canonical projection key per ProjectionId
+///   (kind/subject/scope), recorded at observation time so discovery
+///   survives restart without caller-supplied key maps.
+/// - `observation_anchors`: the source unit an observation was evaluated
+///   against — the file→observations reverse index.
+pub(crate) const ENGINE_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS symbol_locations (
+    symbol TEXT NOT NULL,
+    module TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    PRIMARY KEY (symbol, source_path)
+);
+CREATE TABLE IF NOT EXISTS projection_descriptors (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    subject_variant TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    scope TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS observation_anchors (
+    observation_id TEXT PRIMARY KEY,
+    source_path TEXT NOT NULL
+);
+"#;
+
 pub(crate) fn conn_schema_version(conn: &rusqlite::Connection) -> rusqlite::Result<Option<i64>> {
     match conn.query_row(
         "SELECT value FROM schema_meta WHERE key = 'schema_version'",
@@ -263,6 +301,39 @@ pub(crate) fn conn_schema_version(conn: &rusqlite::Connection) -> rusqlite::Resu
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(e),
     }
+}
+
+/// Centralized observation decode with canonical-id verification: a
+/// persisted observation id that does not re-derive from its fields is
+/// corrupt state, explicitly failed closed (spec §8, §19).
+fn decode_observation_row(
+    oid: &str,
+    proj: &str,
+    snap: &str,
+    digest: &str,
+    canonical: Option<&str>,
+) -> Result<trellis_core::projection::ProjectionObservation, StoreError> {
+    let proj_id = parse_typed(proj, "projection")?;
+    let snap_id = parse_typed(snap, "snapshot")?;
+    let value = parse_typed(digest, "digest")?;
+    let id = parse_typed(oid, "observation")?;
+    let derived =
+        trellis_core::observation_id::canonical_observation_id(&proj_id, &value, &snap_id);
+    if derived != id {
+        return Err(StoreError::Corrupt(format!(
+            "observation id {oid} does not re-derive from its fields"
+        )));
+    }
+    Ok(trellis_core::projection::ProjectionObservation::new(
+        id,
+        proj_id,
+        snap_id,
+        value,
+        canonical
+            .map(|c| c.parse())
+            .transpose()
+            .map_err(|_| StoreError::Corrupt("bad blob id".into()))?,
+    ))
 }
 
 pub(crate) fn ensure_blob(conn: &rusqlite::Connection, blob_id: &str) -> Result<(), StoreError> {
@@ -937,6 +1008,19 @@ impl Store {
         &mut self,
         obs: &trellis_core::projection::ProjectionObservation,
     ) -> Result<(), StoreError> {
+        // Ingress gate: only canonical observation identities are durable
+        // (a forged id could never re-derive on load — refuse now, §19).
+        let derived = trellis_core::observation_id::canonical_observation_id(
+            &obs.projection(),
+            obs.value_digest(),
+            &obs.snapshot(),
+        );
+        if derived != obs.id() {
+            return Err(StoreError::Constraint(format!(
+                "observation id {} is not the canonical derivation of its fields",
+                obs.id()
+            )));
+        }
         self.transaction(|conn| {
             conn.execute(
                 "INSERT OR IGNORE INTO projection_observations
@@ -978,16 +1062,7 @@ impl Store {
         );
         match row {
             Ok((oid, proj, snap, digest, canonical)) => {
-                Ok(trellis_core::projection::ProjectionObservation::new(
-                    parse_typed(&oid, "observation")?,
-                    parse_typed(&proj, "projection")?,
-                    parse_typed(&snap, "snapshot")?,
-                    parse_typed(&digest, "digest")?,
-                    canonical
-                        .map(|c| c.parse())
-                        .transpose()
-                        .map_err(|_| StoreError::Corrupt("bad blob id".into()))?,
-                ))
+                decode_observation_row(&oid, &proj, &snap, &digest, canonical.as_deref())
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 Err(StoreError::NotFound(format!("observation {id}")))
@@ -1099,4 +1174,311 @@ fn parse_channel(s: &str) -> Option<trellis_core::validity::CaptureChannel> {
         "Unobserved" => CaptureChannel::Unobserved,
         _ => return None,
     })
+}
+
+// ─── engine support: discovery reverse indexes ──────────────────────
+
+impl Store {
+    /// Record a symbol's defining source unit (symbol→file reverse index).
+    /// Idempotent per (symbol, source_path); ALL historical locations are
+    /// preserved — discovery must never lose an anchor.
+    ///
+    /// # Errors
+    /// SQLite failures.
+    pub fn put_symbol_location(
+        &mut self,
+        symbol: &str,
+        module: &str,
+        source_path: &str,
+    ) -> Result<(), StoreError> {
+        self.transaction(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO symbol_locations (symbol, module, source_path)
+                 VALUES (?1, ?2, ?3)",
+                rusqlite::params![symbol, module, source_path],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// All recorded symbol locations, sorted by (symbol, source_path).
+    ///
+    /// # Errors
+    /// SQLite failures.
+    pub fn symbol_locations(&self) -> Result<Vec<(String, String, String)>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT symbol, module, source_path FROM symbol_locations
+             ORDER BY symbol, source_path",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(StoreError::from)
+    }
+
+    /// Atomically persist one observation's full discovery state: the
+    /// observation row, its projection descriptor, and its source anchor —
+    /// one transaction, never partially persisted (M4 gate; engine
+    /// `record_observation` is the sanctioned caller).
+    ///
+    /// # Errors
+    /// [`StoreError::Constraint`] on identity-pairing, canonical-id, or
+    /// anchor-conflict violations; SQLite failures.
+    pub fn record_observation_record(
+        &mut self,
+        projection: &trellis_core::projection::Projection,
+        observation: &trellis_core::projection::ProjectionObservation,
+        anchor_path: &str,
+    ) -> Result<(), StoreError> {
+        // Ingress gates (fail before any write).
+        if projection.id() != observation.projection() {
+            return Err(StoreError::Constraint(format!(
+                "observation {} does not carry projection {}'s id",
+                observation.id(),
+                projection.id()
+            )));
+        }
+        let derived = trellis_core::observation_id::canonical_observation_id(
+            &observation.projection(),
+            observation.value_digest(),
+            &observation.snapshot(),
+        );
+        if derived != observation.id() {
+            return Err(StoreError::Constraint(format!(
+                "observation id {} is not the canonical derivation of its fields",
+                observation.id()
+            )));
+        }
+        self.transaction(|conn| {
+            let variant = match projection.subject() {
+                trellis_core::projection::Subject::File(_) => "File",
+                trellis_core::projection::Subject::Symbol(_) => "Symbol",
+                trellis_core::projection::Subject::Module(_) => "Module",
+                trellis_core::projection::Subject::Text(_) => "Text",
+                trellis_core::projection::Subject::ConfigKey(_) => "ConfigKey",
+                trellis_core::projection::Subject::Tool(_) => "Tool",
+            };
+            conn.execute(
+                "INSERT OR IGNORE INTO projection_descriptors
+                 (id, kind, subject_variant, subject, scope)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    projection.id().to_string(),
+                    projection.kind().keyword(),
+                    variant,
+                    projection.subject().canonical(),
+                    projection.scope_name(),
+                ],
+            )?;
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT source_path FROM observation_anchors WHERE observation_id = ?1",
+                    [observation.id().to_string()],
+                    |r| r.get(0),
+                )
+                .map(Some)
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })?;
+            match existing {
+                Some(p) if p == anchor_path => {}
+                Some(p) => {
+                    return Err(StoreError::Constraint(format!(
+                        "observation {} already anchored to {p}, refusing conflicting anchor {anchor_path}",
+                        observation.id()
+                    )))
+                }
+                None => {
+                    conn.execute(
+                        "INSERT INTO observation_anchors (observation_id, source_path)
+                         VALUES (?1, ?2)",
+                        rusqlite::params![observation.id().to_string(), anchor_path],
+                    )?;
+                }
+            }
+            conn.execute(
+                "INSERT OR IGNORE INTO projection_observations
+                 (id, projection, snapshot, value_digest, canonical_value)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    observation.id().to_string(),
+                    observation.projection().to_string(),
+                    observation.snapshot().to_string(),
+                    observation.value_digest().to_string(),
+                    observation.canonical_value().map(|b| b.to_string()),
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Record a projection's canonical key descriptor (kind/subject/scope)
+    /// for its content id. Idempotent.
+    ///
+    /// # Errors
+    /// SQLite failures.
+    pub fn put_projection_descriptor(
+        &mut self,
+        projection: &trellis_core::projection::Projection,
+    ) -> Result<(), StoreError> {
+        self.transaction(|conn| {
+            let variant = match projection.subject() {
+                trellis_core::projection::Subject::File(_) => "File",
+                trellis_core::projection::Subject::Symbol(_) => "Symbol",
+                trellis_core::projection::Subject::Module(_) => "Module",
+                trellis_core::projection::Subject::Text(_) => "Text",
+                trellis_core::projection::Subject::ConfigKey(_) => "ConfigKey",
+                trellis_core::projection::Subject::Tool(_) => "Tool",
+            };
+            conn.execute(
+                "INSERT OR IGNORE INTO projection_descriptors
+                 (id, kind, subject_variant, subject, scope)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    projection.id().to_string(),
+                    projection.kind().keyword(),
+                    variant,
+                    projection.subject().canonical(),
+                    projection.scope_name(),
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Record the source unit an observation was evaluated against
+    /// (file→observation reverse index). Idempotent.
+    ///
+    /// # Errors
+    /// SQLite failures.
+    pub fn put_observation_anchor(
+        &mut self,
+        observation: &trellis_core::ids::ProjectionObservationId,
+        source_path: &str,
+    ) -> Result<(), StoreError> {
+        self.transaction(|conn| {
+            // Idempotent for the identical (observation, path) pair; a
+            // conflicting path for the same observation is corrupt intent —
+            // reject explicitly rather than silently keeping a plausible
+            // wrong anchor (the file→observation index is
+            // correctness-critical).
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT source_path FROM observation_anchors WHERE observation_id = ?1",
+                    [observation.to_string()],
+                    |r| r.get(0),
+                )
+                .map(Some)
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })?;
+            match existing {
+                Some(p) if p == source_path => Ok(()),
+                Some(p) => Err(StoreError::Constraint(format!(
+                    "observation {} already anchored to {p}, refusing conflicting anchor {source_path}",
+                    observation
+                ))),
+                None => {
+                    conn.execute(
+                        "INSERT INTO observation_anchors (observation_id, source_path)
+                         VALUES (?1, ?2)",
+                        rusqlite::params![observation.to_string(), source_path],
+                    )?;
+                    Ok(())
+                }
+            }
+        })
+    }
+
+    /// All persisted projection observations, sorted by id (deterministic).
+    ///
+    /// # Errors
+    /// SQLite failures.
+    pub fn all_projection_observations(
+        &self,
+    ) -> Result<Vec<trellis_core::projection::ProjectionObservation>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, projection, snapshot, value_digest, canonical_value
+             FROM projection_observations ORDER BY id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (oid, proj, snap, digest, canonical) = row?;
+            out.push(decode_observation_row(
+                &oid,
+                &proj,
+                &snap,
+                &digest,
+                canonical.as_deref(),
+            )?);
+        }
+        Ok(out)
+    }
+
+    /// Load one observation's descriptor. Missing row = corrupt persisted
+    /// state: an observation without its key cannot be discovered and must
+    /// never be silently omitted (fail closed, spec §8).
+    ///
+    /// # Errors
+    /// [`StoreError::Corrupt`] when the descriptor row is absent;
+    /// SQLite failures.
+    pub fn projection_descriptor(
+        &self,
+        projection: &trellis_core::ids::ProjectionId,
+    ) -> Result<(String, String, String, String), StoreError> {
+        self.conn
+            .query_row(
+                "SELECT kind, subject_variant, subject, scope
+                 FROM projection_descriptors WHERE id = ?1",
+                [projection.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => StoreError::Corrupt(format!(
+                    "observation references projection {} without a recorded descriptor",
+                    projection
+                )),
+                other => other.into(),
+            })
+    }
+
+    /// Load an observation's anchor. Missing row = corrupt persisted state
+    /// (fail closed).
+    ///
+    /// # Errors
+    /// [`StoreError::Corrupt`] when the anchor row is absent; SQLite failures.
+    pub fn observation_anchor(
+        &self,
+        observation: &trellis_core::ids::ProjectionObservationId,
+    ) -> Result<String, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT source_path FROM observation_anchors WHERE observation_id = ?1",
+                [observation.to_string()],
+                |r| r.get(0),
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => StoreError::Corrupt(format!(
+                    "observation {} has no recorded source anchor",
+                    observation
+                )),
+                other => other.into(),
+            })
+    }
 }

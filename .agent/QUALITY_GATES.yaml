@@ -31,6 +31,17 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M5_IMPACT_ACCEPTANCE:
+    criteria:
+      - no false negatives: every observation whose modeled input (file, located symbol, module, eligible universe) changed appears in the candidate set — verified against the M2 mutation catalog cases supported by M3
+      - over-approximation is allowed and documented (completeness-sensitive kinds match on any file-level change; unanchored observations match everything)
+      - candidate ≠ value-changed ≠ artifact-stale remain distinct concepts in the API (naming + types)
+      - deterministic candidate ordering (canonical id sort); duplicate changes deduplicated
+      - restart/reload: discovery state persisted (observations + symbol locations); identical results after reopen
+      - unsupported semantic knowledge never treated as known: observations of semantic kinds are handled as recorded data, not synthesized
+      - M2 oracle labels untouched; used only as independent must-not-miss expectations
+      - M0-M4 tests unchanged and green
+    evidence_required: run log with test names + fresh review record
   M4_PERSISTENCE_ACCEPTANCE:
     criteria:
       - WAL mode enabled and tested; foreign keys on; multi-row ops transactional

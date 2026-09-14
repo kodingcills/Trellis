@@ -20,6 +20,10 @@ use crate::model::{
 #[derive(Debug, Clone)]
 pub struct PythonSyntaxIndex {
     units: BTreeMap<ModuleId, IndexedUnit>,
+    /// Exact path → content, for path-exact file-digest queries (module
+    /// aliasing — e.g. `users.py` vs `users/__init__.py` — must not
+    /// substitute one unit's content for another's).
+    sources: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -27,6 +31,9 @@ struct IndexedUnit {
     tree: Tree,
     source: String,
     status: ParseStatus,
+    /// The canonical relative path this unit was parsed from — the
+    /// authoritative source unit backing every observation of it.
+    path: String,
 }
 
 impl PythonSyntaxIndex {
@@ -74,10 +81,14 @@ impl PythonSyntaxIndex {
                     tree,
                     source: source.clone(),
                     status,
+                    path: path.clone(),
                 },
             );
         }
-        Self { units }
+        Self {
+            units,
+            sources: tree.clone(),
+        }
     }
 
     /// An index with no units.
@@ -85,6 +96,7 @@ impl PythonSyntaxIndex {
     pub fn empty() -> Self {
         Self {
             units: BTreeMap::new(),
+            sources: BTreeMap::new(),
         }
     }
 
@@ -92,6 +104,26 @@ impl PythonSyntaxIndex {
     #[must_use]
     pub fn unit_count(&self) -> usize {
         self.units.len()
+    }
+
+    /// The authoritative source path of an indexed unit. Resolution is
+    /// M3-owned: consumers (e.g. observation recording) must persist THIS
+    /// path as the anchor, never re-derive module→path rules.
+    #[must_use]
+    pub fn unit_path(&self, module: &ModuleId) -> Option<&str> {
+        self.units.get(module).map(|u| u.path.as_str())
+    }
+
+    /// Resolve a symbol to its defining unit's authoritative source path
+    /// (longest indexed module prefix). This is the current resolution —
+    /// it can change as units are added/removed, which is why anchors are
+    /// recorded at observation time and discovery re-selects on inventory
+    /// changes.
+    #[must_use]
+    pub fn resolve_symbol_unit(&self, symbol: &SymbolPath) -> Option<(ModuleId, String)> {
+        let (module, _nesting) = self.resolve_symbol(symbol)?;
+        let path = self.unit_path(&module)?.to_string();
+        Some((module, path))
     }
 
     fn new_parser() -> Parser {
@@ -215,13 +247,19 @@ impl PythonSyntaxIndex {
     /// not proven absences, spec §8).
     #[must_use]
     pub fn file_digest_impl(&self, path: &str) -> Answer<Option<trellis_core::ids::ContentHash>> {
-        let Some(module) = ModuleId::from_path(path) else {
+        // Path-exact: the digest is of THIS path's content, never of a
+        // module-aliased unit (ModuleId can alias `m.py` and
+        // `m/__init__.py`; substituting content would corrupt the
+        // file-content projection, spec §2.1). Non-Python or non-canonical
+        // paths remain outside the indexed universe (Unsupported, not
+        // proven absence — spec §8).
+        if ModuleId::from_path(path).is_none() {
             return Answer::Unsupported(Unsupported::UnitNotIndexed(path.to_string()));
-        };
-        match self.units.get(&module) {
-            Some(unit) => Answer::Proven(Some(trellis_core::ids::ContentHash::compute(
+        }
+        match self.sources.get(path) {
+            Some(content) => Answer::Proven(Some(trellis_core::ids::ContentHash::compute(
                 trellis_core::ids::HashAlgo::Blake3,
-                unit.source.as_bytes(),
+                content.as_bytes(),
             ))),
             None => Answer::Proven(None),
         }
