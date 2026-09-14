@@ -31,6 +31,15 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M9_OVERLAY_ACCEPTANCE:
+    criteria:
+      - overlay view = last frozen SCIP graph + reconcile delta + tree-sitter: mid-task queries reflect the CURRENT tree (a caller added after the freeze is visible in the overlay answer, a caller removed disappears) while the frozen snapshot stays unchanged
+      - backend-identity stamping: overlay results record which layer proved them (frozen-graph vs syntactic-overlay) and carry Authority::Provisional, never Authoritative
+      - overlay-derived semantic values drive the standard M6 transition but appended attestations are PROVISIONAL + Validity can never satisfy the reuse floor alone (§15: Valid ∧ Authoritative ∧ ¬Unobserved)
+      - authority upgrade by append only: a subsequent freeze/revalidation appends an AUTHORITATIVE attestation for the same artifact; every prior attestation byte-identical (history append-only, §12.2)
+      - overlay results can never establish completeness-sensitive authority: certificates derived from the overlay carry Unproven reference/inheritance capabilities (Completeness::Unknown for semantic kinds)
+      - M0-M8 tests unchanged and green; oracle labels untouched; determinism (overlay evaluation of the same tree+delta is identical)
+    evidence_required: run log with test names + fresh review record
   M8_FREEZE_ACCEPTANCE:
     criteria:
       - scip crate ingested ONLY in the trellis-scip adapter crate; zero SCIP types/knowledge in trellis-core/trellis-engine/trellis-program/trellis-store (grep-verified)

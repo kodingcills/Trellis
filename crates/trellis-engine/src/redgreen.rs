@@ -994,3 +994,105 @@ impl ReevaluationSource for FrozenSemanticSource<'_> {
         }
     }
 }
+
+/// A semantic source backed by the frozen SCIP graph **plus live
+/// syntactic evidence over the current tree** (M9, spec §9.2): the
+/// provisional live overlay for mid-task navigation.
+///
+/// Composition: for semantic kinds, the overlay re-resolves call sites
+/// textually over the current tree (tree-sitter layer) and unions the
+/// result with the frozen graph's members restricted to files NOT in
+/// the current delta — a caller added after the freeze is visible, a
+/// caller whose defining file was removed disappears, and frozen
+/// members from untouched files are retained. Evidence class is
+/// **provisional** (§9.2: overlay results can never be authoritative;
+/// completeness-sensitive authority is impossible here — the overlay's
+/// certificate capabilities are Unproven by construction).
+pub struct OverlaySemanticSource<'a> {
+    syntactic: SyntacticSource<'a>,
+    graph: &'a trellis_scip::ScipGraph,
+    /// Files the reconcile delta touched (added/modified): their frozen
+    /// members are superseded by live evaluation.
+    delta_paths: std::collections::BTreeSet<String>,
+    /// Live textual call-graph over the current tree (caller member →
+    /// dotted callee). Produced by the harness/backend layer; the
+    /// overlay composes it over the frozen graph.
+    live_calls: BTreeMap<String, Vec<String>>,
+}
+
+impl<'a> OverlaySemanticSource<'a> {
+    /// Compose the frozen graph with the live delta view.
+    #[must_use]
+    pub fn new(
+        graph: &'a trellis_scip::ScipGraph,
+        index: &'a PythonSyntaxIndex,
+        delta_paths: impl IntoIterator<Item = impl Into<String>>,
+        live_calls: BTreeMap<String, Vec<String>>,
+    ) -> Self {
+        Self {
+            syntactic: SyntacticSource::new(index),
+            graph,
+            delta_paths: delta_paths.into_iter().map(Into::into).collect(),
+            live_calls,
+        }
+    }
+}
+
+impl ReevaluationSource for OverlaySemanticSource<'_> {
+    fn evaluate(&self, projection: &Projection) -> Result<Option<Evaluated>, TransitionError> {
+        match projection.kind() {
+            ProjectionKind::Callers => {
+                let subject = projection.subject().canonical();
+                // Frozen members from files NOT touched by the delta.
+                // Delta paths normalize exactly as the SCIP ingest
+                // normalizes document paths: `auth/__init__.py` IS
+                // module `auth` (never `auth.__init__`) — the same
+                // `/__init__` strip the ingest applies. Mismatches here
+                // would retain stale frozen callers (a missed
+                // invalidation, §2.1).
+                let delta_modules: std::collections::BTreeSet<String> = self
+                    .delta_paths
+                    .iter()
+                    .filter_map(|p| {
+                        p.strip_suffix(".py").map(|s| {
+                            let dotted = s.replace('/', ".");
+                            dotted
+                                .strip_suffix(".__init__")
+                                .unwrap_or(&dotted)
+                                .to_string()
+                        })
+                    })
+                    .collect();
+                let mut members: Vec<String> = self
+                    .graph
+                    .callers
+                    .get(subject)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|m| {
+                        let def_module = m.rsplit_once('.').map_or(m.as_str(), |(mo, _)| mo);
+                        !delta_modules.contains(def_module)
+                    })
+                    .collect();
+                // Live members from the current tree.
+                members.extend(self.live_calls.get(subject).cloned().unwrap_or_default());
+                members.sort();
+                members.dedup();
+                Ok(Some(Evaluated::new(members.join("; "), false)))
+            }
+            ProjectionKind::Implementations => {
+                // Inheritance edges come only from a semantic backend;
+                // the overlay cannot re-derive them syntactically, so
+                // the frozen value is served (best-effort navigation)
+                // and marked provisional.
+                Ok(Some(Evaluated::new(
+                    self.graph
+                        .implementations_value(projection.subject().canonical()),
+                    false,
+                )))
+            }
+            _ => self.syntactic.evaluate(projection),
+        }
+    }
+}
