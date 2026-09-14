@@ -128,6 +128,79 @@ pub fn observe_file_digest(
     })
 }
 
+/// The canonical value rendering a syntactic projection observation
+/// carries (the digest is BLAKE3 over exactly these bytes). Exposed so M6
+/// reevaluation compares **identical encodings** — re-evaluating with a
+/// different canonicalization than the recorded value would create false
+/// value changes (M6 gate: value equality must compare like with like).
+///
+/// - FileContent: the content hash rendering.
+/// - Definition: `DefKind rendering @ canonical symbol path`.
+/// - Signature: the normalized signature's canonical rendering.
+/// - Imports: `target as binding (from_import)` entries, sorted, joined
+///   with `"; "` — line-number-free.
+pub fn syntactic_value_canonical(
+    index: &PythonSyntaxIndex,
+    projection: &Projection,
+) -> Result<Option<String>, ObserveError> {
+    match projection.kind() {
+        ProjectionKind::FileContent => {
+            let path = projection.subject().canonical();
+            Ok(index
+                .file_digest(path)
+                .proven()
+                .flatten()
+                .map(|d| d.to_string()))
+        }
+        ProjectionKind::Definition => {
+            let Some(symbol) =
+                trellis_program::prelude::SymbolPath::new(projection.subject().canonical())
+            else {
+                return Ok(None);
+            };
+            Ok(index.definition(&symbol).proven().map(|maybe_def| {
+                maybe_def
+                    .map(|def| format!("{:?}@{}", def.kind, def.symbol))
+                    .unwrap_or_else(|| "absent".to_string())
+            }))
+        }
+        ProjectionKind::Signature => {
+            let Some(symbol) =
+                trellis_program::prelude::SymbolPath::new(projection.subject().canonical())
+            else {
+                return Ok(None);
+            };
+            Ok(index.signature(&symbol).proven().map(|maybe_sig| {
+                maybe_sig
+                    .map(|sig| sig.canonical())
+                    .unwrap_or_else(|| "absent".to_string())
+            }))
+        }
+        ProjectionKind::Imports => {
+            let Some(module) = trellis_program::prelude::ModuleId::from_path(&format!(
+                "{}.py",
+                projection.subject().canonical().replace('.', "/")
+            )) else {
+                return Ok(None);
+            };
+            let Some(imports) = index.imports(&module).proven() else {
+                return Ok(None);
+            };
+            let mut canonical: Vec<String> = imports
+                .iter()
+                .map(|i| format!("{} as {} ({})", i.target, i.binding, i.from_import))
+                .collect();
+            canonical.sort();
+            canonical.dedup();
+            Ok(Some(canonical.join("; ")))
+        }
+        _ => Err(ObserveError::KindMismatch {
+            expected: ProjectionKind::Definition,
+            got: projection.kind(),
+        }),
+    }
+}
+
 /// Observe a symbol's syntactic definition (`definition(symbol)`).
 pub fn observe_definition(
     index: &PythonSyntaxIndex,
@@ -142,22 +215,20 @@ pub fn observe_definition(
     let Some((module, resolved)) = index.resolve_symbol_unit(&symbol) else {
         return Ok(None);
     };
-    Ok(match index.definition(&symbol) {
-        Answer::Proven(Some(def)) => {
-            let canonical = format!("{:?}@{}", def.kind, def.symbol);
-            Some(ObservedObservation {
-                observation: observation(projection, snapshot, &canonical),
-                resolved_source_path: resolved,
-            })
-        }
-        // Proven absence for a cleanly parsed unit is a valid observation
-        // value too: an absent definition is real evidence.
-        Answer::Proven(None) => Some(ObservedObservation {
-            observation: observation(projection, snapshot, "absent"),
-            resolved_source_path: index.unit_path(&module).unwrap_or_default().to_string(),
-        }),
-        _ => None,
-    })
+    let Some(value) = syntactic_value_canonical(index, projection)? else {
+        return Ok(None);
+    };
+    // Proven absence for a cleanly parsed unit is a valid observation
+    // value too ("absent" is real evidence); it anchors to the unit
+    // itself rather than the resolved definition site.
+    let anchor = match index.definition(&symbol) {
+        Answer::Proven(Some(_)) => resolved,
+        _ => index.unit_path(&module).unwrap_or_default().to_string(),
+    };
+    Ok(Some(ObservedObservation {
+        observation: observation(projection, snapshot, &value),
+        resolved_source_path: anchor,
+    }))
 }
 
 /// Observe a symbol's normalized signature (`signature(symbol)`).
@@ -174,17 +245,17 @@ pub fn observe_signature(
     let Some((module, resolved)) = index.resolve_symbol_unit(&symbol) else {
         return Ok(None);
     };
-    Ok(match index.signature(&symbol) {
-        Answer::Proven(Some(sig)) => Some(ObservedObservation {
-            observation: observation(projection, snapshot, &sig.canonical()),
-            resolved_source_path: resolved,
-        }),
-        Answer::Proven(None) => Some(ObservedObservation {
-            observation: observation(projection, snapshot, "absent"),
-            resolved_source_path: index.unit_path(&module).unwrap_or_default().to_string(),
-        }),
-        _ => None,
-    })
+    let Some(value) = syntactic_value_canonical(index, projection)? else {
+        return Ok(None);
+    };
+    let anchor = match index.signature(&symbol) {
+        Answer::Proven(Some(_)) => resolved,
+        _ => index.unit_path(&module).unwrap_or_default().to_string(),
+    };
+    Ok(Some(ObservedObservation {
+        observation: observation(projection, snapshot, &value),
+        resolved_source_path: anchor,
+    }))
 }
 
 /// Observe a module's syntactic imports (`imports(module, scope)`) as a
@@ -196,26 +267,20 @@ pub fn observe_imports(
     snapshot: SnapshotId,
 ) -> Result<Option<ObservedObservation>, ObserveError> {
     check_kind(projection, ProjectionKind::Imports)?;
+    let Some(value) = syntactic_value_canonical(index, projection)? else {
+        return Ok(None);
+    };
     let Some(module) = trellis_program::prelude::ModuleId::from_path(&format!(
         "{}.py",
         projection.subject().canonical().replace('.', "/")
     )) else {
         return Ok(None);
     };
-    let Some(imports) = index.imports(&module).proven() else {
-        return Ok(None);
-    };
-    let mut canonical: Vec<String> = imports
-        .iter()
-        .map(|i| format!("{} as {} ({})", i.target, i.binding, i.from_import))
-        .collect();
-    canonical.sort();
-    canonical.dedup();
     let Some(resolved) = index.unit_path(&module).map(str::to_string) else {
         return Ok(None);
     };
     Ok(Some(ObservedObservation {
-        observation: observation(projection, snapshot, &canonical.join("; ")),
+        observation: observation(projection, snapshot, &value),
         resolved_source_path: resolved,
     }))
 }

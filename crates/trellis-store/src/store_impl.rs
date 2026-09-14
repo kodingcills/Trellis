@@ -1318,6 +1318,27 @@ impl Store {
         })
     }
 
+    /// Artifacts that declare a dependency on the given projection
+    /// (artifact→projection adjacency, spec §19). Deterministic order.
+    ///
+    /// # Errors
+    /// SQLite failures.
+    pub fn artifacts_by_dependency(
+        &self,
+        projection: &trellis_core::ids::ProjectionId,
+    ) -> Result<Vec<trellis_core::ids::ArtifactId>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT artifact_id FROM artifact_dependencies
+             WHERE projection_id = ?1 ORDER BY artifact_id",
+        )?;
+        let rows = stmt.query_map([projection.to_string()], |r| r.get::<_, String>(0))?;
+        rows.map(|row| {
+            let s = row?;
+            parse_typed(&s, "artifact")
+        })
+        .collect()
+    }
+
     /// Record a projection's canonical key descriptor (kind/subject/scope)
     /// for its content id. Idempotent.
     ///

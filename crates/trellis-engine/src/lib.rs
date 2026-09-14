@@ -19,6 +19,7 @@
 
 pub mod discovery;
 pub mod observe;
+pub mod redgreen;
 
 /// Everything a consumer of the dependency engine typically needs.
 pub mod prelude {
@@ -29,5 +30,10 @@ pub mod prelude {
     pub use crate::observe::{
         observe_definition, observe_file_digest, observe_imports, observe_signature,
         record_unit_index,
+    };
+    pub use crate::redgreen::{
+        contract_verifier_id, ContractVerdict, DependencyEvaluation, Evaluated, ProjectionOutcome,
+        ProjectionOutcomeKind, ReevaluationSource, SyntacticSource, Transition, TransitionError,
+        TransitionReport, ABSENCE_FACT_CONTRACT, SET_EQUALITY_CONTRACT,
     };
 }

@@ -31,6 +31,19 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M6_ORACLE_ACCEPTANCE:
+    criteria:
+      - §33 first acceptance trace end-to-end: R2 (absence → new caller) — callers projection reevaluates ∅ → {api.webhooks.handle_refresh}; ART_CALLERS_REFRESH and ART_NO_CALLERS_FACT append STALE; all other seeded artifacts keep standing with no new attestations
+      - §33 red/green counterexample end-to-end: R3 chained on R2 (caller implementation body changes, caller relation identical) — callers value reevaluates unchanged, no downstream propagation; ART_CALLERS_REFRESH validity contract re-established by append (STALE → VALID); ART_NO_CALLERS_FACT remains STALE (proposition still false)
+      - R1 (unrelated change): zero projection value changes on untouched relations, zero artifact attestation appends — no false semantic invalidation
+      - R4/X3: signature/implementation value changes propagate only to their own dependents (ART_VALIDATE_SIG / ART_PROVIDER_SET STALE, all others untouched)
+      - X1 (aliased-import caller): semantic evaluation source detects the aliased call site → R2-class STALE; X2 (re-export without call) and X4 (universe growth, no new relationships) produce no artifact validity changes
+      - catalog sweep: every artifact_consequences row of R0-R4 and X1-X4 matches the engine's post-transition standing; X5 (coverage degradation → UNKNOWN) documented as M7-gated (coverage certificates do not exist in M6) — deviations are failures, oracle labels never edited
+      - explain record: names projection, old value, new value, and affected dependents for every evaluated artifact (§28 item 7)
+      - internal EngineState never appears on artifacts or attestations (type-level: attestation carries only Validity/Authority/VerificationLevel); every validity transition is an attestation append, never a mutation
+      - oracle labels untouched (fixture files unchanged in git); M0-M5 tests unchanged and green
+      - determinism: identical fixture + mutation sequence → identical report content and ordering (no wall-clock in identity)
+    evidence_required: run log with test names + fresh review record
   M5_IMPACT_ACCEPTANCE:
     criteria:
       - no false negatives: every observation whose modeled input (file, located symbol, module, eligible universe) changed appears in the candidate set — verified against the M2 mutation catalog cases supported by M3

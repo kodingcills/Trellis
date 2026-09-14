@@ -47,3 +47,6 @@ Format: one line per item, tagged with the frozen-spec trigger that would justif
 - Strengthen insertion-order identity test to vary dependency input order (M4 review cycle 1, OPTIONAL).
 - trellis-program declares trellis-source as a runtime dependency though only tests use it today; move to dev-dependencies or keep until M5 wires the consumer (M3 review cycle 3, OPTIONAL).
 - Backend-identity field on projection answers: vacuous while only one backend exists; add when the SCIP provider lands (M3 review cycle 1, OUT_OF_SCOPE for M3).
+
+- 2026-09-14 | M6 (OPTIONAL, review cycle 1) | `syntactic_value_canonical` catch-all `KindMismatch` uses `expected: ProjectionKind::Definition` for any unsupported kind; the label is misleading. Never reached from production code (`SyntacticSource` returns `None` for non-syntactic kinds first). Cosmetic.
+- 2026-09-14 | M6 (OPTIONAL, review cycle 1) | `ProjectionOutcome.prior_digest` reports the earliest-by-canonical-order prior observation's digest rather than the latest evaluation's; explain-record cosmetics only (no decision path; artifact pass resolves pinned values from the latest attestation).
