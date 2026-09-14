@@ -289,6 +289,14 @@ CREATE TABLE IF NOT EXISTS observation_anchors (
     observation_id TEXT PRIMARY KEY,
     source_path TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS completeness_bindings (
+    projection_id TEXT PRIMARY KEY,
+    snapshot TEXT NOT NULL,
+    universe_digest TEXT NOT NULL,
+    coverage_digest TEXT NOT NULL,
+    indexer TEXT NOT NULL,
+    completeness TEXT NOT NULL
+);
 "#;
 
 pub(crate) fn conn_schema_version(conn: &rusqlite::Connection) -> rusqlite::Result<Option<i64>> {
@@ -1501,5 +1509,133 @@ impl Store {
                 )),
                 other => other.into(),
             })
+    }
+
+    /// Bind a completeness-sensitive projection's current observation
+    /// context `(Q, U, C)` (spec §8.1): the snapshot it was evaluated
+    /// at, universe digest, coverage digest, indexer identity, and the
+    /// completeness verdict the certificate supported. One current
+    /// binding per projection: re-binding at a NEW snapshot supersedes
+    /// the previous one (a universe/coverage change re-binds after
+    /// reevaluation); re-binding at the SAME snapshot with a different
+    /// tuple is corrupt intent and rejected.
+    ///
+    /// # Errors
+    /// [`StoreError::Constraint`] on a conflicting same-snapshot rebind;
+    /// SQLite failures.
+    pub fn put_completeness_binding(
+        &mut self,
+        projection: &trellis_core::ids::ProjectionId,
+        snapshot: &trellis_core::ids::SnapshotId,
+        universe_digest: &trellis_core::ids::ContentHash,
+        coverage_digest: &trellis_core::ids::ContentHash,
+        indexer: &str,
+        completeness: trellis_core::coverage::Completeness,
+    ) -> Result<(), StoreError> {
+        let completeness = match completeness {
+            trellis_core::coverage::Completeness::Complete => "complete",
+            trellis_core::coverage::Completeness::Unknown => "unknown",
+        };
+        self.transaction(|conn| {
+            let existing: Option<(String, String, String, String, String)> = conn
+                .query_row(
+                    "SELECT snapshot, universe_digest, coverage_digest, indexer, completeness
+                     FROM completeness_bindings WHERE projection_id = ?1",
+                    [projection.to_string()],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .map(Some)
+                .or_else(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => Ok(None),
+                    other => Err(other),
+                })?;
+            let new_universe = universe_digest.to_string();
+            let new_coverage = coverage_digest.to_string();
+            let new_snapshot = snapshot.to_string();
+            match existing {
+                Some((s, u, c, i, k))
+                    if s == new_snapshot && u == new_universe && c == new_coverage
+                        && i == indexer && k == completeness =>
+                {
+                    Ok(())
+                }
+                Some((s, _, _, _, _)) if s == new_snapshot => Err(StoreError::Constraint(
+                    format!(
+                        "projection {projection} already bound at snapshot {s} with a different (universe, coverage, indexer, completeness); refusing conflicting rebind"
+                    ),
+                )),
+                _ => {
+                    conn.execute(
+                        "INSERT INTO completeness_bindings
+                         (projection_id, snapshot, universe_digest, coverage_digest, indexer, completeness)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                         ON CONFLICT(projection_id) DO UPDATE SET
+                           snapshot = excluded.snapshot,
+                           universe_digest = excluded.universe_digest,
+                           coverage_digest = excluded.coverage_digest,
+                           indexer = excluded.indexer,
+                           completeness = excluded.completeness",
+                        rusqlite::params![
+                            projection.to_string(),
+                            new_snapshot,
+                            new_universe,
+                            new_coverage,
+                            indexer,
+                            completeness
+                        ],
+                    )?;
+                    Ok(())
+                }
+            }
+        })
+    }
+
+    /// The persisted current `(Q, U, C)` binding for a projection.
+    ///
+    /// # Errors
+    /// [`StoreError::NotFound`] when unbound; SQLite failures.
+    pub fn completeness_binding(
+        &self,
+        projection: &trellis_core::ids::ProjectionId,
+    ) -> Result<
+        (
+            trellis_core::ids::SnapshotId,
+            trellis_core::ids::ContentHash,
+            trellis_core::ids::ContentHash,
+            String,
+            trellis_core::coverage::Completeness,
+        ),
+        StoreError,
+    > {
+        let (s, u, c, i, k) = self.conn.query_row(
+            "SELECT snapshot, universe_digest, coverage_digest, indexer, completeness
+             FROM completeness_bindings WHERE projection_id = ?1",
+            [projection.to_string()],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            },
+        )?;
+        let completeness = match k.as_str() {
+            "complete" => trellis_core::coverage::Completeness::Complete,
+            "unknown" => trellis_core::coverage::Completeness::Unknown,
+            other => {
+                return Err(StoreError::Corrupt(format!(
+                    "unknown completeness verdict {other:?}"
+                )))
+            }
+        };
+        Ok((
+            parse_typed(&s, "snapshot")?,
+            parse_typed(&u, "universe digest")?,
+            parse_typed(&c, "coverage digest")?,
+            i,
+            completeness,
+        ))
     }
 }

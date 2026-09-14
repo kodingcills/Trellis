@@ -32,8 +32,8 @@ pub mod prelude {
         record_unit_index,
     };
     pub use crate::redgreen::{
-        contract_verifier_id, ContractVerdict, DependencyEvaluation, Evaluated, ProjectionOutcome,
-        ProjectionOutcomeKind, ReevaluationSource, SyntacticSource, Transition, TransitionError,
-        TransitionReport, ABSENCE_FACT_CONTRACT, SET_EQUALITY_CONTRACT,
+        contract_verifier_id, ContractVerdict, CoverageContext, DependencyEvaluation, Evaluated,
+        ProjectionOutcome, ProjectionOutcomeKind, ReevaluationSource, SyntacticSource, Transition,
+        TransitionError, TransitionReport, ABSENCE_FACT_CONTRACT, SET_EQUALITY_CONTRACT,
     };
 }

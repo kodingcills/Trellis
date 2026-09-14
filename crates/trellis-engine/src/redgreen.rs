@@ -27,6 +27,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use trellis_core::attestation::{EvidenceRef, ValidationAttestation};
+use trellis_core::coverage::{Completeness, CompletenessEvaluator, CoverageCertificate, Universe};
 use trellis_core::ids::{
     ArtifactId, AttestationId, ContentHash, HashAlgo, ProjectionId, ProjectionObservationId,
     SnapshotId, Timestamp, VerifierId,
@@ -103,6 +104,21 @@ impl Evaluated {
     pub const fn is_authoritative(&self) -> bool {
         self.authoritative
     }
+}
+
+/// The completeness context a transition is evaluated under (§8): the
+/// explicit eligible universe, the backend's coverage certificate for
+/// this snapshot, and the indexer identity. Absent → the transition
+/// behaves exactly as M6 defined it (no binding checks, no completeness
+/// verdicts); present, it governs every completeness-sensitive kind.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoverageContext {
+    /// The eligible universe this transition's world state declares.
+    pub universe: Universe,
+    /// The backend's coverage capabilities over that universe.
+    pub certificate: CoverageCertificate,
+    /// Indexer identity/version/config (§8.1: persisted per binding).
+    pub indexer: String,
 }
 
 /// Where a projection's current value comes from. Production ships the
@@ -197,6 +213,15 @@ pub struct ProjectionOutcome {
     new_value: Option<String>,
     new_digest: Option<ContentHash>,
     outcome: ProjectionOutcomeKind,
+    /// The completeness verdict under which a completeness-sensitive
+    /// projection was evaluated this round (§8.2); `None` for other
+    /// kinds and when no coverage context was supplied.
+    completeness: Option<Completeness>,
+    /// Whether the completeness standing changed relative to the
+    /// persisted binding (§8.1 dirtying) even though the value may be
+    /// unchanged. Such outcomes enter the artifact pass without being
+    /// value changes.
+    completeness_dirty: bool,
     affected_artifacts: Vec<ArtifactId>,
 }
 
@@ -237,6 +262,19 @@ impl ProjectionOutcome {
     #[must_use]
     pub const fn outcome(&self) -> ProjectionOutcomeKind {
         self.outcome
+    }
+
+    /// The completeness verdict for completeness-sensitive kinds
+    /// evaluated under a coverage context (§8.2).
+    #[must_use]
+    pub const fn completeness(&self) -> Option<Completeness> {
+        self.completeness
+    }
+
+    /// Whether the completeness standing changed this round (§8.1).
+    #[must_use]
+    pub const fn completeness_dirty(&self) -> bool {
+        self.completeness_dirty
     }
 
     /// Artifacts whose validity contract was re-evaluated because of
@@ -320,6 +358,12 @@ pub struct DependencyEvaluation {
     projection: ProjectionId,
     changed: bool,
     authoritative: bool,
+    /// The completeness verdict under which this dependency's fresh
+    /// value was established (completeness-sensitive kinds only, §8).
+    completeness: Option<Completeness>,
+    /// Whether the completeness standing changed relative to the
+    /// persisted binding even though the value may be unchanged (§8.1).
+    completeness_dirty: bool,
     pinned_digest: Option<ContentHash>,
     new_digest: Option<ContentHash>,
     new_value: Option<String>,
@@ -342,6 +386,19 @@ impl DependencyEvaluation {
     #[must_use]
     pub const fn is_authoritative(&self) -> bool {
         self.authoritative
+    }
+
+    /// The completeness verdict of this dependency's fresh evidence.
+    #[must_use]
+    pub const fn completeness(&self) -> Option<Completeness> {
+        self.completeness
+    }
+
+    /// Whether the completeness standing changed relative to the
+    /// persisted binding (§8.1).
+    #[must_use]
+    pub const fn completeness_dirty(&self) -> bool {
+        self.completeness_dirty
     }
 
     /// The value the artifact's latest attestation pinned for this
@@ -401,6 +458,7 @@ pub struct Transition<'a> {
     changed: ChangedSet,
     target_snapshot: SnapshotId,
     now: Timestamp,
+    coverage: Option<CoverageContext>,
 }
 
 impl<'a> Transition<'a> {
@@ -423,7 +481,21 @@ impl<'a> Transition<'a> {
             changed,
             target_snapshot,
             now,
+            coverage: None,
         }
+    }
+
+    /// Evaluate under an explicit completeness context (§8). When set,
+    /// every completeness-sensitive projection binds to (Q, U, C): a
+    /// universe/coverage/indexer change relative to the persisted
+    /// binding dirties the observation for reevaluation — even with an
+    /// empty changed set (catches indexer bumps) — and the certificate
+    /// verdict governs absence/set claims. When absent, the transition
+    /// behaves exactly as M6 defined it.
+    #[must_use]
+    pub fn with_coverage(mut self, coverage: CoverageContext) -> Self {
+        self.coverage = Some(coverage);
+        self
     }
 
     /// Run the transition (§18 steps 2-12). Idempotent for identical
@@ -440,11 +512,44 @@ impl<'a> Transition<'a> {
         let candidate_ids: BTreeSet<ProjectionObservationId> =
             candidates.ids().into_iter().collect();
 
+        // §8.1 dirtying: a universe/coverage/indexer change relative to
+        // the persisted (Q, U, C) binding re-dirties the observation for
+        // reevaluation — independent of the file-level changed set (an
+        // indexer bump with an untouched tree must still reevaluate).
+        // It triggers reevaluation, never immediate downstream
+        // destruction; downstream effects follow the normal red/green
+        // evaluation of the reevaluated value (§8.1).
+        let mut forced: BTreeSet<ProjectionId> = BTreeSet::new();
+        if let Some(ctx) = &self.coverage {
+            let universe_digest = ctx.universe.digest();
+            let coverage_digest = ctx.certificate.digest();
+            let mut seen: BTreeSet<ProjectionId> = BTreeSet::new();
+            for rec in &recorded {
+                let pid = rec.observation.projection();
+                if !rec.projection.kind().is_completeness_sensitive() || !seen.insert(pid) {
+                    continue;
+                }
+                let dirty = match self.store.completeness_binding(&pid) {
+                    Err(trellis_store::StoreError::NotFound(_)) => true,
+                    Err(e) => return Err(e.into()),
+                    Ok((_, u, c, indexer, _)) => {
+                        u != universe_digest || c != coverage_digest || indexer != ctx.indexer
+                    }
+                };
+                if dirty {
+                    forced.insert(pid);
+                }
+            }
+        }
+
         let by_id: BTreeMap<ProjectionObservationId, &crate::discovery::RecordedObservation> =
             recorded
                 .iter()
                 .map(|r| (r.observation.id(), r))
-                .filter(|(id, _)| candidate_ids.contains(id))
+                .filter(|(_, r)| {
+                    candidate_ids.contains(&r.observation.id())
+                        || forced.contains(&r.observation.projection())
+                })
                 .collect();
 
         let mut by_projection: BTreeMap<ProjectionId, Vec<&crate::discovery::RecordedObservation>> =
@@ -467,10 +572,42 @@ impl<'a> Transition<'a> {
             let evaluated = self.source.evaluate(projection)?;
             let compared: Vec<ProjectionObservationId> =
                 obs.iter().map(|o| o.observation.id()).collect();
+
+            // §8.2: the completeness verdict for this round, evaluated
+            // by the backend-independent evaluator against the supplied
+            // certificate. `None` when no coverage context was supplied
+            // (M6 behavior) or the kind makes no absence claims.
+            let completeness = match (
+                &self.coverage,
+                projection.kind().is_completeness_sensitive(),
+            ) {
+                (Some(ctx), true) => Some(CompletenessEvaluator::evaluate(
+                    projection.kind(),
+                    &ctx.certificate,
+                )),
+                _ => None,
+            };
+
+            // §8.1: a completeness-standing change (coverage downgrade
+            // or upgrade vs the persisted binding) dirties the CLAIM for
+            // reevaluation even when the underlying value is identical —
+            // downstream effects then follow the normal red/green
+            // contract evaluation, never immediate destruction.
+            let claim_dirty = match completeness {
+                Some(verdict) => {
+                    let bound = match self.store.completeness_binding(pid) {
+                        Ok((_, _, _, _, bound)) => Some(bound),
+                        Err(trellis_store::StoreError::NotFound(_)) => None,
+                        Err(e) => return Err(e.into()),
+                    };
+                    bound != Some(verdict)
+                }
+                None => false,
+            };
             let outcome = match evaluated {
                 Some(ev) => {
                     let new_digest = digest_of(ev.value());
-                    let changed = obs
+                    let value_changed = obs
                         .iter()
                         .any(|o| o.observation.value_digest() != &new_digest);
                     let new_observation = ProjectionObservation::new(
@@ -480,6 +617,25 @@ impl<'a> Transition<'a> {
                         new_digest,
                         None,
                     );
+                    // Persist the (Q, U, C) binding for
+                    // completeness-sensitive kinds (§8.1). Unbound here
+                    // means the projection was never seeded with a
+                    // binding — the dirtying rule above marks it as a
+                    // candidate next round regardless, so this only
+                    // records what this round established.
+                    if let Some(ctx) = &self.coverage {
+                        if projection.kind().is_completeness_sensitive() {
+                            self.store.put_completeness_binding(
+                                pid,
+                                &self.target_snapshot,
+                                &ctx.universe.digest(),
+                                &ctx.certificate.digest(),
+                                &ctx.indexer,
+                                completeness.unwrap_or(Completeness::Unknown),
+                            )?;
+                        }
+                    }
+                    let changed = value_changed || claim_dirty;
                     // Anchor is preserved from the recorded chain: the
                     // projection's discovery anchor is an evaluation-time
                     // fact of the same projection, so re-recording with
@@ -506,6 +662,8 @@ impl<'a> Transition<'a> {
                         new_value: Some(ev.value().to_string()),
                         new_digest: Some(new_digest),
                         outcome,
+                        completeness,
+                        completeness_dirty: claim_dirty && !value_changed,
                         affected_artifacts: Vec::new(),
                     }
                 }
@@ -516,6 +674,8 @@ impl<'a> Transition<'a> {
                     new_value: None,
                     new_digest: None,
                     outcome: ProjectionOutcomeKind::Unobserved,
+                    completeness,
+                    completeness_dirty: claim_dirty,
                     affected_artifacts: Vec::new(),
                 },
             };
@@ -525,27 +685,46 @@ impl<'a> Transition<'a> {
         // Artifact pass: every artifact depending on a changed
         // projection is re-contracted (§18 steps 5-9). Unchanged and
         // unobserved projections never dirty their dependents — the
-        // value-equality cutoff.
+        // value-equality cutoff — EXCEPT a completeness-standing change
+        // (§8.1): the claim itself was dirtied, so its dependents are
+        // re-evaluated (the contract then honestly downgrades to UNKNOWN
+        // when the reevaluated values would otherwise hold).
         let mut artifacts: Vec<ArtifactOutcome> = Vec::new();
         let mut append_seq: u64 = 0;
         for outcome in projections
             .iter_mut()
-            .filter(|o| o.outcome == ProjectionOutcomeKind::Changed)
+            .filter(|o| o.outcome == ProjectionOutcomeKind::Changed || o.completeness_dirty)
         {
             let pid = outcome.projection.id();
             let dependents = self.store.artifacts_by_dependency(&pid)?;
             outcome.affected_artifacts = dependents.clone();
             for aid in dependents {
-                let new_observation = &new_observations[&pid];
-                let evaluation = DependencyEvaluation {
-                    projection: pid,
-                    changed: true,
-                    authoritative: changed_values
-                        .get(&pid)
-                        .is_some_and(Evaluated::is_authoritative),
-                    pinned_digest: None,
-                    new_digest: Some(*new_observation.value_digest()),
-                    new_value: changed_values.get(&pid).map(|e| e.value().to_string()),
+                // An Unobserved projection has no fresh observation this
+                // round; the contract evaluation then honestly degrades
+                // to Undecidable (missing fresh evidence, §15).
+                let evaluation = match new_observations.get(&pid) {
+                    Some(new_observation) => DependencyEvaluation {
+                        projection: pid,
+                        changed: outcome.outcome == ProjectionOutcomeKind::Changed,
+                        authoritative: changed_values
+                            .get(&pid)
+                            .is_some_and(Evaluated::is_authoritative),
+                        completeness: outcome.completeness,
+                        completeness_dirty: outcome.completeness_dirty,
+                        pinned_digest: None,
+                        new_digest: Some(*new_observation.value_digest()),
+                        new_value: changed_values.get(&pid).map(|e| e.value().to_string()),
+                    },
+                    None => DependencyEvaluation {
+                        projection: pid,
+                        changed: false,
+                        authoritative: false,
+                        completeness: outcome.completeness,
+                        completeness_dirty: outcome.completeness_dirty,
+                        pinned_digest: None,
+                        new_digest: None,
+                        new_value: None,
+                    },
                 };
                 if let Some(existing) = artifacts.iter_mut().find(|ao| ao.artifact == aid) {
                     existing.dependency_evaluations.push(evaluation);
@@ -711,6 +890,22 @@ impl<'a> Transition<'a> {
                 }
             }
             _ => ContractVerdict::Undecidable,
+        };
+        // Coverage downgrade (§8.2): a completeness-sensitive dependency
+        // evaluated under UNKNOWN can no longer establish absence or set
+        // claims. If the reevaluated values would otherwise hold, the
+        // honest standing is UNKNOWN (never authoritative absence); a
+        // claim that would fail on the values alone stays failed.
+        let verdict = if touched
+            .iter()
+            .any(|d| d.completeness == Some(Completeness::Unknown))
+        {
+            match verdict {
+                ContractVerdict::Holds => ContractVerdict::Undecidable,
+                other => other,
+            }
+        } else {
+            verdict
         };
         let authoritative = touched.iter().all(|d| d.is_authoritative());
         let authority = if authoritative {

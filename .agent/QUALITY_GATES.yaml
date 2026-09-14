@@ -31,6 +31,18 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M7_ABSENCE_ACCEPTANCE:
+    criteria:
+      - every completeness-sensitive observation binds (Q, U, C): universe digest + coverage digest + indexer identity persisted with the observation (§8.1); non-completeness-sensitive kinds bind none
+      - indexer-version change (same tree, empty changed set) dirties all completeness-sensitive observations for reevaluation
+      - universe growth (new eligible file) dirties completeness-sensitive observations and reevaluation under complete coverage re-establishes absence claims as VALID (never immediate downstream destruction)
+      - coverage degradation (known-failed unit → certificate failure) downgrades absence-bearing artifacts to UNKNOWN, never authoritative absence (§8.2); definition-local dependencies (Signature/FileContent) are unaffected
+      - empty result + satisfied requirements → potentially authoritative absence; empty result + unsatisfied requirements → UNKNOWN, never authoritative absence
+      - X5 oracle row now matched end-to-end (ART_NO_CALLERS_FACT, ART_CALLERS_REFRESH, ART_PROVIDER_SET, ART_LOGIN_CALLERS → UNKNOWN; ART_VALIDATE_SIG, ART_STATELESS unchanged VALID)
+      - projection kinds contain no backend-specific knowledge; SCIP knowledge nowhere (types in trellis-core std-only; certificate produced by the program-index backend; engine only evaluates requirements ⊆ capabilities)
+      - M6 transition semantics preserved: value-equality cutoff, append-only attestations, R0-R4/X1-X4 sweep still green
+      - oracle labels untouched; M0-M6 tests unchanged and green; determinism verified
+    evidence_required: run log with test names + fresh review record
   M6_ORACLE_ACCEPTANCE:
     criteria:
       - §33 first acceptance trace end-to-end: R2 (absence → new caller) — callers projection reevaluates ∅ → {api.webhooks.handle_refresh}; ART_CALLERS_REFRESH and ART_NO_CALLERS_FACT append STALE; all other seeded artifacts keep standing with no new attestations

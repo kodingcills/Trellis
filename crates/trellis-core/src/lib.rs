@@ -23,6 +23,7 @@
 pub mod artifact;
 pub mod attestation;
 pub mod canonical;
+pub mod coverage;
 pub mod error;
 pub mod ids;
 pub mod observation_id;
@@ -39,6 +40,9 @@ pub mod prelude {
     pub use crate::attestation::{AttestationHistory, EvidenceRef, ValidationAttestation};
     pub use crate::canonical::{
         write_bytes, write_sorted_str_pairs, write_sorted_strs, write_str, write_u64,
+    };
+    pub use crate::coverage::{
+        Completeness, CompletenessEvaluator, CoverageCertificate, CoverageState, Universe,
     };
     pub use crate::error::DomainError;
     pub use crate::ids::{

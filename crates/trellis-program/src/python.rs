@@ -15,6 +15,7 @@ use crate::model::{
     DefKind, Definition, Import, ModuleId, Param, ParamKind, ParseStatus, Signature, SourceSpan,
     SymbolPath,
 };
+use trellis_core::coverage::{CoverageCertificate, CoverageState};
 
 /// Deterministic syntax-grounded index over a set of Python source units.
 #[derive(Debug, Clone)]
@@ -104,6 +105,52 @@ impl PythonSyntaxIndex {
     #[must_use]
     pub fn unit_count(&self) -> usize {
         self.units.len()
+    }
+
+    /// The coverage certificate this syntax backend can honestly
+    /// establish over the given universe (spec §8.2): universe
+    /// enumeration and declaration inventory are established **only for
+    /// units it indexed**; resolved-reference and inheritance
+    /// capabilities are `Unproven` — a syntax backend can never claim
+    /// them (M8's SCIP adapter is the first producer that may). Units
+    /// outside the index (never indexed) and parse-failed units are
+    /// recorded as explicit coverage failures.
+    ///
+    /// `paths` must be the same eligible-universe paths the observation
+    /// binds (§8.1); the certificate's coverage digest therefore changes
+    /// when the universe or any unit's indexability changes.
+    #[must_use]
+    pub fn coverage_certificate(&self, paths: &[String]) -> CoverageCertificate {
+        let mut failures = Vec::new();
+        for path in paths {
+            match ModuleId::from_path(path) {
+                Some(module) => match self.units.get(&module) {
+                    Some(unit) if unit.status.is_ok() => {}
+                    Some(_) => failures.push(path.clone()),
+                    None => failures.push(path.clone()),
+                },
+                None => failures.push(path.clone()),
+            }
+        }
+        if failures.is_empty() {
+            CoverageCertificate {
+                universe_complete: CoverageState::Established,
+                all_units_participated: CoverageState::Established,
+                declaration_inventory_complete: CoverageState::Established,
+                resolved_reference_coverage: CoverageState::Unproven,
+                inheritance_relationships: CoverageState::Unproven,
+                failures: Vec::new(),
+            }
+        } else {
+            CoverageCertificate {
+                universe_complete: CoverageState::Established,
+                all_units_participated: CoverageState::Failed,
+                declaration_inventory_complete: CoverageState::Failed,
+                resolved_reference_coverage: CoverageState::Failed,
+                inheritance_relationships: CoverageState::Unproven,
+                failures,
+            }
+        }
     }
 
     /// The authoritative source path of an indexed unit. Resolution is

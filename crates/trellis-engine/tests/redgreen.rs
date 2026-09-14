@@ -21,11 +21,14 @@ use trellis_core::projection::{Projection, ProjectionKind, ProjectionObservation
 use trellis_core::snapshot::Snapshot;
 use trellis_core::validity::{Authority, Validity, VerificationLevel};
 
+use trellis_core::coverage::{Completeness, CoverageCertificate, CoverageState, Universe};
 use trellis_engine::discovery::RecordedObservation;
 use trellis_engine::prelude::*;
+
 use trellis_engine::redgreen::{
-    contract_verifier_id, ContractVerdict, ProjectionOutcome, ProjectionOutcomeKind,
-    ReevaluationSource, SyntacticSource, Transition, ABSENCE_FACT_CONTRACT, SET_EQUALITY_CONTRACT,
+    contract_verifier_id, ContractVerdict, CoverageContext, ProjectionOutcome,
+    ProjectionOutcomeKind, ReevaluationSource, SyntacticSource, Transition, ABSENCE_FACT_CONTRACT,
+    SET_EQUALITY_CONTRACT,
 };
 use trellis_oracle::{Catalog, Mutation, Op};
 use trellis_program::prelude::PythonSyntaxIndex;
@@ -35,6 +38,7 @@ use trellis_store::prelude::Store;
 
 const BASE_TIMESTAMP: Timestamp = 1_700_000_000_000;
 const TIMESTAMP_STEP: Timestamp = 1_000;
+const FIXTURE_INDEXER: &str = "fixture-semantic-v1";
 
 fn digest_of(bytes: &[u8]) -> ContentHash {
     ContentHash::compute(HashAlgo::Blake3, bytes)
@@ -550,11 +554,7 @@ fn seed_base() -> Seeded {
                 .expect("source evaluates")
                 .expect("fixture source proves every seeded dependency at base");
             let obs = ProjectionObservation::new(
-                canonical_observation_id(
-                    &projection.id(),
-                    &digest_str(value.value()),
-                    &snapshot,
-                ),
+                canonical_observation_id(&projection.id(), &digest_str(value.value()), &snapshot),
                 projection.id(),
                 snapshot,
                 digest_str(value.value()),
@@ -563,6 +563,22 @@ fn seed_base() -> Seeded {
             store
                 .record_observation_record(&projection, &obs, &anchor_for(&projection, &tree))
                 .expect("base observation recorded");
+            if projection.kind().is_completeness_sensitive() {
+                // §8.1: completeness-sensitive observations bind to
+                // (Q, U, C). The fixture semantic backend is fully
+                // capable over the pristine fixture, so the baseline
+                // certificate is complete.
+                store
+                    .put_completeness_binding(
+                        &projection.id(),
+                        &snapshot,
+                        &Universe::new(tree.keys().cloned()).digest(),
+                        &CoverageCertificate::complete().digest(),
+                        FIXTURE_INDEXER,
+                        Completeness::Complete,
+                    )
+                    .expect("base binding recorded");
+            }
             evidence.push(EvidenceRef::Observation(obs.id()));
             dep_ids.push(projection.id());
             dep_observations
@@ -640,6 +656,27 @@ fn seed_base() -> Seeded {
 }
 
 fn run_mutation(seeded: &mut Seeded, mutation: &Mutation, now: Timestamp) -> TransitionReport {
+    run_mutation_ctx(seeded, mutation, now, None)
+}
+
+fn coverage_context(
+    paths: &[String],
+    indexer: &str,
+    certificate: CoverageCertificate,
+) -> CoverageContext {
+    CoverageContext {
+        universe: Universe::new(paths.iter().cloned()),
+        certificate,
+        indexer: indexer.to_string(),
+    }
+}
+
+fn run_mutation_ctx(
+    seeded: &mut Seeded,
+    mutation: &Mutation,
+    now: Timestamp,
+    coverage: Option<CoverageContext>,
+) -> TransitionReport {
     let work_root = seeded.work.path().join("tree");
     let manifest_prev = build_manifest(&ManifestOptions::new(&work_root)).expect("manifest builds");
     apply_ops(&work_root, &mutation.ops);
@@ -652,9 +689,12 @@ fn run_mutation(seeded: &mut Seeded, mutation: &Mutation, now: Timestamp) -> Tra
 
     let index = PythonSyntaxIndex::index(&seeded.tree);
     let source = FixtureSource::new(&index, &seeded.tree);
-    Transition::new(&mut seeded.store, &source, changed, snapshot, now)
-        .run()
-        .expect("transition runs")
+    let transition = Transition::new(&mut seeded.store, &source, changed, snapshot, now);
+    let transition = match coverage {
+        Some(ctx) => transition.with_coverage(ctx),
+        None => transition,
+    };
+    transition.run().expect("transition runs")
 }
 
 fn latest_validity(store: &Store, artifact: &ArtifactId) -> Option<Validity> {
@@ -1015,12 +1055,12 @@ fn oracle_catalog_sweep_matches_labels() {
     assert!(report.artifacts().is_empty(), "no appends without change");
 }
 
-/// X5 (coverage degradation → UNKNOWN) requires coverage certificates
-/// (M7). In M6 the fixture semantic source still proves values over the
-/// unparseable file, so standings legitimately remain unchanged; this
-/// test pins the M6 boundary and must be revisited at M7.
+/// X5 without a coverage context (the M6-compatible path): no binding
+/// checks, no completeness verdicts — standings unchanged. The full X5
+/// semantics (degradation → UNKNOWN) are covered by
+/// `x5_coverage_degradation_downgrades_to_unknown` below.
 #[test]
-fn x5_coverage_degradation_is_m7_gated() {
+fn x5_without_coverage_context_keeps_standings() {
     let mut seeded = seed_base();
     let catalog = Catalog::load();
     let x5 = catalog
@@ -1036,6 +1076,335 @@ fn x5_coverage_degradation_is_m7_gated() {
         let standing = latest_validity(&seeded.store, &id);
         assert!(standing.is_some(), "{} keeps a standing", artifact.id);
     }
+    let _ = report;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// M7: universe + coverage certificates (spec §8)
+// ─────────────────────────────────────────────────────────────────────
+
+/// Indexer-version change with an untouched tree (empty changed set)
+/// dirties every completeness-sensitive observation for reevaluation
+/// (§8.1): they are reevaluated, re-bound to the new indexer identity,
+/// and — values unchanged under complete coverage — no artifact is
+/// invalidated. A second bump with the same identity is not dirty.
+#[test]
+fn indexer_bump_dirties_completeness_observations() {
+    let mut seeded = seed_base();
+    let callers = parse_projection("Callers(auth.tokens.refresh_token, Repository)");
+
+    let snapshot = SnapshotId::from_hash(digest_str("trellis.harness.snapshot:indexer-bump"));
+    put_snapshot_row(
+        &mut seeded.store,
+        snapshot,
+        Some(seeded.snapshot),
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    );
+    seeded.snapshot = snapshot;
+    let index = PythonSyntaxIndex::index(&seeded.tree);
+    let source = FixtureSource::new(&index, &seeded.tree);
+    let paths: Vec<String> = seeded.tree.keys().cloned().collect();
+    let ctx = coverage_context(
+        &paths,
+        "fixture-semantic-v2",
+        CoverageCertificate::complete(),
+    );
+    let report = Transition::new(
+        &mut seeded.store,
+        &source,
+        ChangedSet::default(),
+        snapshot,
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    )
+    .with_coverage(ctx)
+    .run()
+    .expect("indexer-bump transition runs");
+
+    // Every completeness-sensitive observation was reevaluated with a
+    // COMPLETE verdict and no standing change.
+    for (kind, subject) in [
+        (ProjectionKind::Callers, "auth.tokens.refresh_token"),
+        (ProjectionKind::Callers, "auth.service.AuthService.login"),
+        (
+            ProjectionKind::Implementations,
+            "auth.interfaces.AuthProvider",
+        ),
+    ] {
+        let outcome = find_outcome(&report, kind, subject);
+        assert_eq!(
+            outcome.outcome(),
+            ProjectionOutcomeKind::Unchanged,
+            "{subject}"
+        );
+        assert_eq!(
+            outcome.completeness(),
+            Some(Completeness::Complete),
+            "{subject}"
+        );
+        assert!(!outcome.completeness_dirty(), "{subject}");
+    }
+
+    // Values unchanged under complete coverage → no artifact touched.
+    assert!(
+        report.artifacts().is_empty(),
+        "no re-contraction on indexer bump"
+    );
+    let catalog = Catalog::load();
+    for artifact in &catalog.seeded_artifacts {
+        let id = seeded.artifact_ids[&artifact.id];
+        assert_eq!(
+            history_len(&seeded.store, &id),
+            1,
+            "{} untouched",
+            artifact.id
+        );
+    }
+
+    // The binding now records the new indexer identity (§8.1).
+    let (_, _, _, indexer, _) = seeded
+        .store
+        .completeness_binding(&callers.id())
+        .expect("binding persisted");
+    assert_eq!(indexer, "fixture-semantic-v2");
+
+    // Same identity again at a fresh snapshot → not dirty → empty report.
+    let snapshot2 = SnapshotId::from_hash(digest_str("trellis.harness.snapshot:indexer-bump-2"));
+    put_snapshot_row(
+        &mut seeded.store,
+        snapshot2,
+        Some(snapshot),
+        BASE_TIMESTAMP + 2 * TIMESTAMP_STEP,
+    );
+    seeded.snapshot = snapshot2;
+    let ctx2 = coverage_context(
+        &paths,
+        "fixture-semantic-v2",
+        CoverageCertificate::complete(),
+    );
+    let report2 = Transition::new(
+        &mut seeded.store,
+        &source,
+        ChangedSet::default(),
+        snapshot2,
+        BASE_TIMESTAMP + 2 * TIMESTAMP_STEP,
+    )
+    .with_coverage(ctx2)
+    .run()
+    .expect("second indexer-bump runs");
+    assert!(
+        report2.projections().is_empty(),
+        "identical binding context dirties nothing"
+    );
+}
+
+/// Universe growth (new eligible file, no relationship changes) dirties
+/// completeness-sensitive observations (§8.1); reevaluation under
+/// complete coverage re-binds and re-establishes the absence claims as
+/// VALID — never immediate downstream destruction.
+#[test]
+fn universe_growth_dirties_and_reestablishes_absence() {
+    let mut seeded = seed_base();
+    let catalog = Catalog::load();
+    let x4 = catalog
+        .mutations
+        .iter()
+        .find(|m| m.id == "X4")
+        .expect("X4 in catalog")
+        .clone();
+
+    // Apply the mutation manually so the coverage context describes the
+    // POST-growth world (a real caller binds the current universe).
+    let work_root = seeded.work.path().join("tree");
+    let manifest_prev = build_manifest(&ManifestOptions::new(&work_root)).expect("manifest builds");
+    apply_ops(&work_root, &x4.ops);
+    let changed = reconcile_against_working_tree(&manifest_prev, &ManifestOptions::new(&work_root))
+        .expect("reconciles");
+    seeded.tree = read_tree_from(&work_root);
+    let snapshot = snapshot_id_for(&seeded.tree);
+    put_snapshot_row(
+        &mut seeded.store,
+        snapshot,
+        Some(seeded.snapshot),
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    );
+    seeded.snapshot = snapshot;
+
+    let paths: Vec<String> = seeded.tree.keys().cloned().collect();
+    let index = PythonSyntaxIndex::index(&seeded.tree);
+    let source = FixtureSource::new(&index, &seeded.tree);
+    let report = Transition::new(
+        &mut seeded.store,
+        &source,
+        changed,
+        snapshot,
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    )
+    .with_coverage(coverage_context(
+        &paths,
+        FIXTURE_INDEXER,
+        CoverageCertificate::complete(),
+    ))
+    .run()
+    .expect("universe-growth transition runs");
+
+    // The Callers projection reevaluates (universe digest changed) with
+    // the same value under complete coverage: the §8.1 dirtying forced
+    // the reevaluation; the verdict is unchanged, so nothing propagates.
+    let outcome = find_outcome(
+        &report,
+        ProjectionKind::Callers,
+        "auth.tokens.refresh_token",
+    );
+    assert_eq!(outcome.outcome(), ProjectionOutcomeKind::Unchanged);
+    assert_eq!(outcome.completeness(), Some(Completeness::Complete));
+    assert!(
+        !outcome.completeness_dirty(),
+        "verdict unchanged → no claim dirtying (§8.1: reevaluation, not destruction)"
+    );
+    assert!(!outcome.compared().is_empty(), "projection was reevaluated");
+
+    // Absence artifacts: VALID stays VALID with no new attestation —
+    // value unchanged under an unchanged verdict is exactly the §18
+    // step-12 cutoff.
+    let structural = seeded.artifact_ids["ART_CALLERS_REFRESH"];
+    assert_eq!(
+        latest_validity(&seeded.store, &structural),
+        Some(Validity::Valid)
+    );
+    assert_eq!(history_len(&seeded.store, &structural), 1);
+    assert!(report.artifacts().is_empty(), "no re-contraction");
+}
+
+/// X5 end-to-end (§8.2): a unit the backend cannot index (syntax error)
+/// produces a coverage certificate with explicit failures;
+/// CompletenessEvaluator answers UNKNOWN for completeness-sensitive
+/// kinds; absence/set claims degrade to UNKNOWN, never authoritative
+/// absence. Definition-local dependencies (Signature, FileContent) are
+/// unaffected.
+#[test]
+fn x5_coverage_degradation_downgrades_to_unknown() {
+    let mut seeded = seed_base();
+    let catalog = Catalog::load();
+    let x5 = catalog
+        .mutations
+        .iter()
+        .find(|m| m.id == "X5")
+        .expect("X5 in catalog")
+        .clone();
+
+    // Apply the mutation manually: the certificate must describe the
+    // POST-mutation world, where users/broken.py is a real coverage
+    // failure (a syntax-error unit the backend cannot index).
+    let work_root = seeded.work.path().join("tree");
+    let manifest_prev = build_manifest(&ManifestOptions::new(&work_root)).expect("manifest builds");
+    apply_ops(&work_root, &x5.ops);
+    let changed = reconcile_against_working_tree(&manifest_prev, &ManifestOptions::new(&work_root))
+        .expect("reconciles");
+    seeded.tree = read_tree_from(&work_root);
+    let snapshot = snapshot_id_for(&seeded.tree);
+    put_snapshot_row(
+        &mut seeded.store,
+        snapshot,
+        Some(seeded.snapshot),
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    );
+    seeded.snapshot = snapshot;
+
+    let paths: Vec<String> = seeded.tree.keys().cloned().collect();
+    let certificate = PythonSyntaxIndex::index(&seeded.tree).coverage_certificate(&paths);
+    assert!(
+        certificate
+            .failures
+            .contains(&"users/broken.py".to_string()),
+        "the broken unit must be an explicit coverage failure"
+    );
+    let index = PythonSyntaxIndex::index(&seeded.tree);
+    let source = FixtureSource::new(&index, &seeded.tree);
+    let report = Transition::new(
+        &mut seeded.store,
+        &source,
+        changed,
+        snapshot,
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    )
+    .with_coverage(coverage_context(&paths, FIXTURE_INDEXER, certificate))
+    .run()
+    .expect("X5 transition runs");
+
+    // The broken file is an explicit coverage failure.
+    let outcome = find_outcome(
+        &report,
+        ProjectionKind::Callers,
+        "auth.tokens.refresh_token",
+    );
+    assert_eq!(outcome.completeness(), Some(Completeness::Unknown));
+
+    // Absence-bearing artifacts degrade to UNKNOWN (X5 oracle rows).
+    for name in [
+        "ART_NO_CALLERS_FACT",
+        "ART_CALLERS_REFRESH",
+        "ART_PROVIDER_SET",
+        "ART_LOGIN_CALLERS",
+    ] {
+        let id = seeded.artifact_ids[name];
+        assert_eq!(
+            latest_validity(&seeded.store, &id),
+            Some(Validity::Unknown),
+            "{name} must be UNKNOWN under degraded coverage"
+        );
+        assert!(
+            report.artifacts().iter().any(|ao| ao.artifact() == id),
+            "{name} must appear in the artifact pass"
+        );
+    }
+
+    // Definition-local artifacts are unaffected (X5 oracle rows).
+    for name in ["ART_VALIDATE_SIG", "ART_STATELESS"] {
+        let id = seeded.artifact_ids[name];
+        assert_eq!(
+            latest_validity(&seeded.store, &id),
+            Some(Validity::Valid),
+            "{name} must stay VALID"
+        );
+        assert_eq!(history_len(&seeded.store, &id), 1, "{name} untouched");
+    }
+}
+
+/// Degraded coverage AND a genuine value change compose honestly: the
+/// caller set grows (R2) while coverage is degraded — the value change
+/// dominates (Fails → STALE); a coverage downgrade alone over an
+/// unchanged value yields UNKNOWN.
+#[test]
+fn degraded_coverage_composes_with_value_changes() {
+    let mut seeded = seed_base();
+    let catalog = Catalog::load();
+    let r2 = catalog
+        .mutations
+        .iter()
+        .find(|m| m.id == "R2")
+        .expect("R2 in catalog")
+        .clone();
+
+    // R2 under a certificate that cannot resolve references (no syntax
+    // failures, but resolution capability unproven).
+    let paths: Vec<String> = seeded.tree.keys().cloned().collect();
+    let mut unproven = CoverageCertificate::complete();
+    unproven.resolved_reference_coverage = CoverageState::Unproven;
+    let report = run_mutation_ctx(
+        &mut seeded,
+        &r2,
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+        Some(coverage_context(&paths, FIXTURE_INDEXER, unproven)),
+    );
+
+    // The caller set genuinely changed; the claim fails on values
+    // regardless of coverage → STALE (not UNKNOWN).
+    let structural = seeded.artifact_ids["ART_CALLERS_REFRESH"];
+    assert_eq!(
+        latest_validity(&seeded.store, &structural),
+        Some(Validity::Stale),
+        "a real value change stays STALE under degraded coverage"
+    );
     let _ = report;
 }
 
@@ -1286,4 +1655,83 @@ fn seeded_observations_load_fail_closed() {
     for rec in &recorded {
         assert!(!rec.anchor_path.is_empty(), "anchors recorded");
     }
+}
+
+/// Regression (M7 review OPTIONAL, cheap closure): a completeness-dirty
+/// candidate whose source CANNOT evaluate (Unobserved) must neither
+/// panic (new_observations indexing) nor fabricate a verdict. The
+/// §18 step-12 cutoff holds: no value change and no claim change means
+/// no propagation and no append — the standing is preserved.
+#[test]
+fn unobserved_completeness_dirty_degrades_to_unknown() {
+    let mut seeded = seed_base();
+
+    // A source that declines every evaluation (no evidence this round).
+    struct BlindSource;
+    impl ReevaluationSource for BlindSource {
+        fn evaluate(
+            &self,
+            _projection: &Projection,
+        ) -> Result<
+            Option<trellis_engine::redgreen::Evaluated>,
+            trellis_engine::redgreen::TransitionError,
+        > {
+            Ok(None)
+        }
+    }
+
+    let snapshot = SnapshotId::from_hash(digest_str("trellis.harness.snapshot:blind"));
+    put_snapshot_row(
+        &mut seeded.store,
+        snapshot,
+        Some(seeded.snapshot),
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    );
+    seeded.snapshot = snapshot;
+
+    // The indexer identity changed → completeness-sensitive observations
+    // are dirty (§8.1), but the source proves nothing → Unobserved.
+    let paths: Vec<String> = seeded.tree.keys().cloned().collect();
+    let ctx = coverage_context(
+        &paths,
+        "fixture-semantic-blind",
+        CoverageCertificate::complete(),
+    );
+    let report = Transition::new(
+        &mut seeded.store,
+        &BlindSource,
+        ChangedSet::default(),
+        snapshot,
+        BASE_TIMESTAMP + TIMESTAMP_STEP,
+    )
+    .with_coverage(ctx)
+    .run()
+    .expect("blind transition runs");
+
+    // Completeness-sensitive outcomes exist and are Unobserved: the
+    // forced dirtying reevaluated them, but the source proved nothing.
+    let outcome = find_outcome(
+        &report,
+        ProjectionKind::Callers,
+        "auth.tokens.refresh_token",
+    );
+    assert_eq!(outcome.outcome(), ProjectionOutcomeKind::Unobserved);
+    assert_eq!(outcome.completeness(), Some(Completeness::Complete));
+    assert!(
+        !outcome.completeness_dirty(),
+        "verdict unchanged → the claim is NOT dirty (§8.1 dirtying is verdict-scoped)"
+    );
+
+    // §18 step-12 cutoff: no evidence of a value or claim change → the
+    // artifact's standing is untouched (no propagation, no attestation).
+    // This pins the invariant that Unobserved alone NEVER invalidates —
+    // the engine neither fabricates a verdict nor destroys a standing
+    // it cannot justify touching.
+    let structural = seeded.artifact_ids["ART_CALLERS_REFRESH"];
+    assert_eq!(
+        latest_validity(&seeded.store, &structural),
+        Some(Validity::Valid),
+        "no evidence of change → standing preserved (§18 step 12)"
+    );
+    assert_eq!(history_len(&seeded.store, &structural), 1, "no append");
 }
