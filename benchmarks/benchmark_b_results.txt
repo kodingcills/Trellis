@@ -1,0 +1,21 @@
+Benchmark B — systems economics (synthetic fixture)
+====================================================
+per-operation latencies (microseconds):
+  source reconciliation                        p50=  1142us  p95=  1203us  p99=  1203us  n=20
+  candidate discovery                          p50=     0us  p95=     2us  p99=     2us  n=20
+  projection reevaluation (validate)           p50=   869us  p95=  1073us  p99=  1073us  n=20
+  full fixture reindex (recompute)             p50= 10013us  p95= 10111us  p99= 10111us  n=10
+  SCIP freeze (ingest + identity)              p50=    10us  p95=    13us  p99=    13us  n=10
+  CAS put (payload)                            p50=  3985us  p95=  6846us  p99=  6846us  n=20
+  attestation append                           p50=   123us  p95=   158us  p99=   158us  n=10
+
+scaling (affected-frontier size):
+frontier= 1 (reconcile+discover)             p50=  1133us  p95=  1213us  p99=  1213us  n=10
+    frontier= 8 (reconcile+discover)             p50=  1260us  p95=  1281us  p99=  1281us  n=10
+    frontier=32 (reconcile+discover)             p50=  1694us  p95=  1798us  p99=  1798us  n=10
+
+economic premise (kill-criterion measurement, §28):
+  C_validate (p95 discovery+reevaluation) = 1075us
+  C_recompute (p95 full reindex)          = 10111us
+  ratio C_recompute / C_validate          = 9.4x
+  premise C_validate << C_recompute: HOLDS

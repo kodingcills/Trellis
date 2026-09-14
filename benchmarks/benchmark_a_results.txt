@@ -1,0 +1,65 @@
+Benchmark A — oracle validity (full M2 mutation catalog)
+=========================================================
+rows measured:        54
+rows matching labels: 54
+false-valid:          0   (gate: 0)
+oracle-invalid rows:  11
+stale recall:         1.0000
+invalidation precision: 1.0000
+abstention (UNKNOWN) matches: 4
+
+per-row:
+ R1 ART_CALLERS_REFRESH      expected=Valid actual=Valid OK
+ R1 ART_NO_CALLERS_FACT      expected=Valid actual=Valid OK
+ R1 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ R1 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ R1 ART_STATELESS            expected=Valid actual=Valid OK
+ R1 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ R2 ART_CALLERS_REFRESH      expected=Stale actual=Stale OK
+ R2 ART_NO_CALLERS_FACT      expected=Stale actual=Stale OK
+ R2 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ R2 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ R2 ART_STATELESS            expected=Valid actual=Valid OK
+ R2 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ R3 ART_CALLERS_REFRESH      expected=Valid actual=Valid OK
+ R3 ART_NO_CALLERS_FACT      expected=Stale actual=Stale OK
+ R3 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ R3 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ R3 ART_STATELESS            expected=Valid actual=Valid OK
+ R3 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ R4 ART_VALIDATE_SIG         expected=Stale actual=Stale OK
+ R4 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ R4 ART_CALLERS_REFRESH      expected=Valid actual=Valid OK
+ R4 ART_NO_CALLERS_FACT      expected=Valid actual=Valid OK
+ R4 ART_STATELESS            expected=Valid actual=Valid OK
+ R4 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ X1 ART_CALLERS_REFRESH      expected=Stale actual=Stale OK
+ X1 ART_NO_CALLERS_FACT      expected=Stale actual=Stale OK
+ X1 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ X1 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ X1 ART_STATELESS            expected=Valid actual=Valid OK
+ X1 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ X2 ART_NO_CALLERS_FACT      expected=Valid actual=Valid OK
+ X2 ART_CALLERS_REFRESH      expected=Valid actual=Valid OK
+ X2 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ X2 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ X2 ART_STATELESS            expected=Valid actual=Valid OK
+ X2 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ X3 ART_PROVIDER_SET         expected=Stale actual=Stale OK
+ X3 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ X3 ART_NO_CALLERS_FACT      expected=Valid actual=Valid OK
+ X3 ART_CALLERS_REFRESH      expected=Valid actual=Valid OK
+ X3 ART_STATELESS            expected=Valid actual=Valid OK
+ X3 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ X4 ART_NO_CALLERS_FACT      expected=Valid actual=Valid OK
+ X4 ART_CALLERS_REFRESH      expected=Valid actual=Valid OK
+ X4 ART_PROVIDER_SET         expected=Valid actual=Valid OK
+ X4 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ X4 ART_STATELESS            expected=Valid actual=Valid OK
+ X4 ART_LOGIN_CALLERS        expected=Valid actual=Valid OK
+ X5 ART_NO_CALLERS_FACT      expected=Unknown actual=Unknown OK
+ X5 ART_CALLERS_REFRESH      expected=Unknown actual=Unknown OK
+ X5 ART_PROVIDER_SET         expected=Unknown actual=Unknown OK
+ X5 ART_VALIDATE_SIG         expected=Valid actual=Valid OK
+ X5 ART_STATELESS            expected=Valid actual=Valid OK
+ X5 ART_LOGIN_CALLERS        expected=Unknown actual=Unknown OK

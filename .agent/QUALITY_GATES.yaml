@@ -31,6 +31,15 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M10_BENCHMARK_ACCEPTANCE:
+    criteria:
+      - Benchmark A runs the FULL M2 mutation catalog (R0-R4, X1-X5) as independent ground truth: per-mutation, per-artifact validity measured against oracle labels; zero false-valid observed on deterministic classes (STRUCTURAL_SET/FACT with complete coverage); stale recall and invalidation precision reported; X5 abstention (UNKNOWN) behavior measured
+      - oracle labels never modified; labels never read by evaluation code (only by the harness's assertion layer); results reproducible across two runs within stated variance
+      - Benchmark B measures: source reconciliation, candidate discovery, projection reevaluation (validation), SCIP freeze, CAS put/get, attestation append; p50/p95/p99 per operation; scaling across affected-frontier sizes (small/medium/large changed sets)
+      - economic premise measured: C_validate (candidate discovery + reevaluation + attestation append) materially below C_recompute (full fixture reindex + reevaluation); numbers committed; kill-criterion analysis recorded honestly
+      - reproducible run scripts committed under benchmarks/; results committed with run environment note; reruns reproduce within stated variance
+      - M0-M9 tests unchanged and green; no production code changed by the benchmark harness (test-support only)
+    evidence_required: run log with measured numbers + fresh review record
   M9_OVERLAY_ACCEPTANCE:
     criteria:
       - overlay view = last frozen SCIP graph + reconcile delta + tree-sitter: mid-task queries reflect the CURRENT tree (a caller added after the freeze is visible in the overlay answer, a caller removed disappears) while the frozen snapshot stays unchanged
