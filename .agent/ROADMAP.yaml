@@ -222,7 +222,7 @@ nodes:
   - id: M7
     objective: Universe + coverage certificates — requirements/capabilities split and completeness evaluator for absence claims (spec §8).
     dependencies: [M6]
-    status: active
+    status: completed
     deliverables:
       - universe descriptor + universe digest as a dependency (§8.1)
       - CoverageCertificate produced by the program-index backend (§8.2)
@@ -243,12 +243,15 @@ nodes:
     evidence:
       - absence acceptance tests incl. §33 first-trace with coverage fields
       - DECISIONS entry enumerating kind-level requirements v1
+      - commit 131c979 "feat(core,engine): add universe + coverage certificates (M7)"; trellis-core coverage module (Universe/CoverageCertificate/CompletenessEvaluator), PythonSyntaxIndex::coverage_certificate, store completeness_bindings, Transition::with_coverage (§8.1 dirtying + coverage-downgrade contract rule)
+      - M7_ABSENCE_ACCEPTANCE satisfied: all 9 criteria PASS with named tests; X5 oracle row matched end-to-end (4 absence artifacts → UNKNOWN, 2 definition-local → VALID); run log .agent/runs/M7/2026-09-14-universe-coverage.md
+      - review: 1 fresh-context cycle GREEN/COMMIT_ALLOWED — .agent/reviews/2026-09-14-M7-cycle1.md; 175 tests green, clippy clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M8
     objective: Authoritative SCIP freeze adapter — batch ingest, authoritative semantic snapshots, freeze rule (spec §9.1, §9.3, §6).
     dependencies: [M3, M4]
-    status: pending
+    status: active
     deliverables:
       - scip ingestion into normalized program graph (SCIP knowledge ONLY here, §8.2)
       - SemanticSnapshotId production at freeze points

@@ -3,18 +3,18 @@
   "updated_at": "2026-09-14",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "c672401",
-  "current_green_commit_subject": "feat(engine): add red/green invalidation with value-equality cutoff (M6)",
-  "current_green_commit_note": "M6 green checkpoint \u2014 first complete deterministic Trellis kernel (spec \u00a718). trellis-engine redgreen module: Transition (\u00a718 steps 2-12) with value-equality cutoff, contract evaluation against latest-attestation pinned evidence, content-derived attestation identity (idempotent/restart-safe), explain report. GLOBAL_GREEN re-verified (167 tests, clippy -D warnings, fmt). Oracle sweep R0-R4 + X1-X4 matches every catalog consequence row; X5 M7-gated.",
+  "current_green_commit": "131c979",
+  "current_green_commit_subject": "feat(core,engine): add universe + coverage certificates (M7)",
+  "current_green_commit_note": "M7 green checkpoint. (Q, U, C) bindings for completeness-sensitive observations, backend-produced CoverageCertificate (syntax backend claims Unproven for reference/inheritance capabilities), std-only CompletenessEvaluator, \u00a78.1 dirtying (indexer bumps caught with empty changed sets), coverage-downgrade \u2192 UNKNOWN contract rule; X5 matched end-to-end. GLOBAL_GREEN re-verified (175 tests, clippy -D warnings, fmt).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-14",
     "GLOBAL_GREEN": {
-      "cargo_test": "pass \u2014 167 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 10 engine-redgreen + 14 oracle + 22 program + 20 source + 27 store)",
+      "cargo_test": "pass \u2014 175 passed / 0 failed (6 cas + 43 core + 43 engine + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy_D_warnings": "pass \u2014 zero warnings",
       "fmt_check": "pass"
     },
     "node_gates": {
-      "M6_ORACLE_ACCEPTANCE": "pass \u2014 all 11 criteria PASS with named tests; \u00a733 first acceptance trace + red/green counterexample end-to-end; catalog sweep R0-R4 + X1-X4 matches every artifact_consequences row; X5 documented as M7-gated. Run log .agent/runs/M6/2026-09-14-red-green-invalidation.md"
+      "M7_ABSENCE_ACCEPTANCE": "pass \u2014 all 9 criteria PASS with named tests; X5 oracle row matched end-to-end; indexer-bump/universe-growth/degraded-coverage semantics verified. Run log .agent/runs/M7/2026-09-14-universe-coverage.md"
     }
   },
   "completed_nodes": [
@@ -24,35 +24,35 @@
     "M3",
     "M4",
     "M5",
-    "M6"
+    "M6",
+    "M7"
   ],
   "active_nodes": [
-    "M7"
+    "M8"
   ],
   "blocked_nodes": [],
   "next_candidates": [
-    "M7"
+    "M8"
   ],
-  "next_candidates_note": "M7 (universe + coverage certificates) now unblocked (M6 complete). It consumes the M6 transition and adds: universe descriptor + digest, CoverageCertificate from the backend, per-projection-kind completeness requirements, CompletenessEvaluator (Requirements(Q) \u2286 Capabilities(C) \u2192 COMPLETE else UNKNOWN), and absence-claim authority semantics. X5 (coverage degradation \u2192 UNKNOWN) becomes real here.",
+  "next_candidates_note": "M8 (authoritative SCIP freeze adapter) now unblocked (deps M3+M4 complete). It consumes the M7 CoverageCertificate types and adds: SCIP batch ingest into the normalized program graph (SCIP knowledge ONLY in the adapter), SemanticSnapshotId production at freeze points, the \u00a76 freeze rule, and CoverageCertificate population from SCIP evidence.",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M6",
+    "node": "M7",
     "kind": "1 fresh-context adversarial review cycle: GREEN / COMMIT_ALLOWED (full candidate diff review)",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-14-M6-cycle1.md",
+    "record": ".agent/reviews/2026-09-14-M7-cycle1.md",
     "open_findings": [],
-    "dispositioned": "1 OPTIONAL \u2192 BACKLOG (KindMismatch catch-all label; ProjectionOutcome.prior_digest earliest-vs-latest cosmetics).",
+    "dispositioned": "2 OPTIONAL \u2192 BACKLOG (M6 x5-test rename \u2014 semantics identical; Unobserved path coverage \u2014 closed post-review with regression test unobserved_completeness_dirty_degrades_to_unknown).",
     "deviation_note": "None."
   },
   "last_gate_result": {
     "ran_at": "2026-09-14",
-    "gate": "GLOBAL_GREEN + M6_ORACLE_ACCEPTANCE",
+    "gate": "GLOBAL_GREEN + M7_ABSENCE_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "167 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 10 engine-redgreen + 14 oracle + 22 program + 20 source + 27 store)",
+      "tests": "175 passed / 0 failed (6 cas + 43 core + 43 engine + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy": "clean at -D warnings",
-      "fmt": "clean",
-      "fixture_unittest": "18 OK (M2 labels untouched)"
+      "fmt": "clean"
     }
   },
   "terminal_state": {
