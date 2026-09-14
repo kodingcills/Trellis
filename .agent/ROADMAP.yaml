@@ -278,7 +278,7 @@ nodes:
   - id: M9
     objective: Provisional live overlay — frozen SCIP + source delta + tree-sitter between freezes (spec §9.2).
     dependencies: [M8, M6]
-    status: active
+    status: completed
     deliverables:
       - overlay view = last frozen SCIP graph + reconcile delta + tree-sitter
       - mid-task queries served from overlay with backend-identity stamping
@@ -297,12 +297,15 @@ nodes:
     evidence:
       - upgrade-by-append tests
       - run log demonstrating provisional → authoritative history
+      - commit df2065e "feat(engine): add provisional live overlay (M9)"; OverlaySemanticSource (frozen+delta+live composition, delta normalization matching the SCIP ingest contract), PROVISIONAL authority plumbing verified end-to-end
+      - M9_OVERLAY_ACCEPTANCE satisfied: all ROADMAP + 6 gate criteria PASS; upgrade-by-append via the production §8.1 binding rule; run log .agent/runs/M9/2026-09-14-provisional-overlay.md
+      - review: 2 fresh-context cycles (cycle 1 REPAIR_REQUIRED: __init__ delta-normalization gap, repaired + discriminating regression test; cycle 2 GREEN/COMMIT_ALLOWED post-repair) — .agent/reviews/2026-09-14-M9-cycle2.md; 191 tests green, clippy clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M10
     objective: Benchmarks A (oracle validity) + B (systems economics) on the synthetic fixture (spec §25 A, B; §28).
     dependencies: [M2, M6, M7, M8]
-    status: pending
+    status: active
     deliverables:
       - Benchmark A harness: false-valid rate, stale recall, invalidation precision, abstention rate across full mutation catalog
       - Benchmark B harness: capture cost, reconciliation cost, projection validation, SCIP freeze cost, CAS/storage cost; p50/p95/p99; scaling vs frontier size

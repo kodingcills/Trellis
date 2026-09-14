@@ -3,18 +3,18 @@
   "updated_at": "2026-09-14",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "0fe0b8e",
-  "current_green_commit_subject": "feat(scip): add authoritative SCIP freeze adapter (M8)",
-  "current_green_commit_note": "M8 green checkpoint. trellis-scip crate (SCIP knowledge confined there): batch ingest via the real scip::symbol parser, \u00a76 freeze rule with change classifier (both \u00a76 examples tested), honesty-floored CoverageCertificate, content-derived SemanticSnapshotId. Engine FrozenSemanticSource drives authoritative semantic transitions. GLOBAL_GREEN re-verified (187 tests, clippy -D warnings, fmt).",
+  "current_green_commit": "df2065e",
+  "current_green_commit_subject": "feat(engine): add provisional live overlay (M9)",
+  "current_green_commit_note": "M9 green checkpoint. OverlaySemanticSource: frozen SCIP graph + reconcile delta + live calls (delta paths normalize identically to the SCIP ingest, /__init__ handled); all overlay values provisional (Authority::Provisional \u2014 never satisfies the \u00a715 floor alone); authority upgrade by append via the \u00a78.1 production binding rule. GLOBAL_GREEN re-verified (191 tests, clippy -D warnings, fmt).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-14",
     "GLOBAL_GREEN": {
-      "cargo_test": "pass \u2014 187 passed / 0 failed (6 cas + 43 core + 43 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store + 4 freeze)",
+      "cargo_test": "pass \u2014 191 passed / 0 failed (6 cas + 43 core + 47 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store + 4 freeze + 4 overlay)",
       "clippy_D_warnings": "pass \u2014 zero warnings",
       "fmt_check": "pass"
     },
     "node_gates": {
-      "M8_FREEZE_ACCEPTANCE": "pass \u2014 all 8 criteria PASS with named tests; both \u00a76 examples end-to-end; certificate honesty floor demonstrated both ways; callers exact vs oracle R2/X1 shapes. Run log .agent/runs/M8/2026-09-14-scip-freeze.md"
+      "M9_OVERLAY_ACCEPTANCE": "pass \u2014 all ROADMAP + 6 gate criteria PASS; PROVISIONAL authority end-to-end; upgrade-by-append with byte-identical prior attestations; __init__-normalization repaired with discriminating regression test. Run log .agent/runs/M9/2026-09-14-provisional-overlay.md"
     }
   },
   "completed_nodes": [
@@ -26,32 +26,33 @@
     "M5",
     "M6",
     "M7",
-    "M8"
+    "M8",
+    "M9"
   ],
   "active_nodes": [
-    "M9"
+    "M10"
   ],
   "blocked_nodes": [],
   "next_candidates": [
-    "M9"
+    "M10"
   ],
-  "next_candidates_note": "M9 (provisional live overlay) now unblocked (deps M8+M6 complete). It consumes the frozen SCIP graph + reconcile delta + tree-sitter for mid-task navigation, stamps backend identity, appends PROVISIONAL attestations (never authoritative), and provides the freeze-upgrade path (append AUTHORITATIVE, prior attestations unchanged).",
+  "next_candidates_note": "M10 (Benchmarks A + B) now unblocked (deps M2/M6/M7/M8 complete). Benchmark A: false-valid rate, stale recall, invalidation precision, abstention across the full mutation catalog vs the M2 oracle. Benchmark B: systems economics \u2014 capture/reconciliation/candidate-discovery/reevaluation/freeze/CAS/persistence costs, p50/p95/p99, scaling vs affected-frontier size, C_validate << C_recompute (kill-criterion measurement).",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M8",
-    "kind": "1 fresh-context adversarial review cycle: GREEN / COMMIT_ALLOWED (full candidate diff review)",
+    "node": "M9",
+    "kind": "2 fresh-context adversarial review cycles: cycle 1 REPAIR_REQUIRED (1 IMPORTANT: __init__-module normalization gap in the overlay delta filter) -> cycle 2 GREEN / COMMIT_ALLOWED (post-repair full-diff review)",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-14-M8-cycle1.md",
+    "record": ".agent/reviews/2026-09-14-M9-cycle2.md (cycle 1: 2026-09-14-M9-cycle1.md retained in session log; repair recorded in run log)",
     "open_findings": [],
-    "dispositioned": "1 OPTIONAL \u2192 closed in code (module_of dotted-module misattribution in the references map; regression test module_level_reference_attributes_full_module added).",
-    "deviation_note": "Reduced-index freeze harness documented (real scip-python runs arrive with M12)."
+    "dispositioned": "Cycle-1 IMPORTANT repaired in code (delta paths normalize with the ingest's /__init__ strip) + discriminating regression test init_py_delta_supersedes_frozen_callers.",
+    "deviation_note": "None."
   },
   "last_gate_result": {
     "ran_at": "2026-09-14",
-    "gate": "GLOBAL_GREEN + M8_FREEZE_ACCEPTANCE",
+    "gate": "GLOBAL_GREEN + M9_OVERLAY_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "187 passed / 0 failed (6 cas + 43 core + 43 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store + 4 freeze)",
+      "tests": "191 passed / 0 failed (6 cas + 43 core + 47 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store + 4 freeze + 4 overlay)",
       "clippy": "clean at -D warnings",
       "fmt": "clean"
     }
