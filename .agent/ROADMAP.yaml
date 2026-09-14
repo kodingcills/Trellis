@@ -110,7 +110,7 @@ nodes:
   - id: M3
     objective: Program projections — tree-sitter parsing, normalized symbols, file/definition/signature queries behind ProgramIndex (spec §9.3, §20).
     dependencies: [M0, M1]
-    status: active
+    status: completed
     deliverables:
       - trellis-program crate (§24 layout/layering)
       - ProgramIndex trait (§9.3); tree-sitter implementation for Python
@@ -132,6 +132,7 @@ nodes:
     evidence:
       - query acceptance tests on fixture
       - DECISIONS entry for symbol canonicalization rules
+      - commit 173f5a0 "feat(program): add deterministic Python syntax projections (M3)"; M3_QUERY_ACCEPTANCE satisfied (22 program tests); review record .agent/reviews/2026-09-08-M3-cycle{1,2,3}.md (status flipped retroactively 2026-09-14: STATE recorded M3 completed but this ROADMAP status was left stale)
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M4
@@ -166,7 +167,7 @@ nodes:
   - id: M5
     objective: Dependency engine — projection observations, reverse indexes, dirty-candidate discovery (spec §18 steps 1-3).
     dependencies: [M3, M4]
-    status: active
+    status: completed
     deliverables:
       - trellis-engine crate (§24)
       - projection observation recording tied to snapshots
@@ -184,12 +185,15 @@ nodes:
     evidence:
       - impact-set tests against the mutation catalog
       - run log with measured candidate-set sizes
+      - commit a5a5e13 "feat(engine): add conservative dirty-candidate discovery (M5)"; trellis-engine crate (observe/discovery + 22-test discovery suite), store ENGINE_SCHEMA + composite publication + fail-closed loaders, core canonical observation identity (observation_id.rs, Projection::id())
+      - M5_IMPACT_ACCEPTANCE satisfied: catalog-driven no-false-negative battery over M2 mutations (R1-R4, X1-X5), 4-class documented over-approximation, deterministic BTreeSet ordering + dedup, restart/reload equivalence, semantic kinds recorded-data-only, M4 fixture strengthened to canonical ids; run log .agent/runs/M5/2026-09-08-candidate-discovery.md
+      - review: 6 fresh-context cycles (REPAIR_REQUIRED x5 -> GREEN/COMMIT_ALLOWED) — .agent/reviews/2026-09-14-M5-cycle6.md (+ M5-cycle{1..5}.md); 157 tests green, clippy -D warnings clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M6
     objective: Red/green invalidation with value-equality cutoff and causal explanation (spec §18).
     dependencies: [M2, M5]
-    status: pending
+    status: active
     deliverables:
       - projection reevaluation for dirty candidates
       - GREEN on old value == new value; DIRTY/VERIFY/STALE path otherwise

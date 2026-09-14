@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
-  "updated_at": "2026-09-08",
+  "updated_at": "2026-09-14",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "cc76bc111ef3a2ee3d1401dfd657ba2814af8155",
-  "current_green_commit_subject": "feat(store): add durable SQLite metadata and local CAS (M4)",
-  "current_green_commit_note": "M4 green checkpoint. Product crates trellis-core/source/oracle/program untouched (core gained additive from_persisted); trellis-cas + trellis-store added. GLOBAL_GREEN re-verified at this checkpoint (124 tests, clippy -D warnings, fmt; fixture unittest 18 OK).",
+  "current_green_commit": "a5a5e13",
+  "current_green_commit_subject": "feat(engine): add conservative dirty-candidate discovery (M5)",
+  "current_green_commit_note": "M5 green checkpoint. Adds trellis-engine (observation production for syntactic kinds, snapshot-tied composite publication, reverse-index candidate discovery), store ENGINE_SCHEMA + fail-closed loaders, core canonical observation identity. GLOBAL_GREEN re-verified at this checkpoint (157 tests, clippy -D warnings, fmt). M2 oracle untouched; candidate discovery never decides staleness (M6 boundary held).",
   "current_green_commit_evidence": {
-    "ran_at": "2026-09-08",
+    "ran_at": "2026-09-14",
     "GLOBAL_GREEN": {
-      "cargo_test": "pass — 59 passed (39 core + 20 source), 0 failed",
+      "cargo_test": "pass — 157 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy_D_warnings": "pass — zero warnings",
       "fmt_check": "pass"
     },
     "node_gates": {
-      "M1_RECONCILE_ACCEPTANCE": "pass — criteria mapped to test names in run log"
+      "M5_IMPACT_ACCEPTANCE": "pass — all 8 criteria PASS with named tests; catalog-driven no-false-negative battery over M2 mutations R1-R4/X1-X5; run log .agent/runs/M5/2026-09-08-candidate-discovery.md"
     }
   },
   "completed_nodes": [
@@ -22,33 +22,36 @@
     "M1",
     "M2",
     "M3",
-    "M4"
-  ],
-  "active_nodes": [],
-  "blocked_nodes": [],
-  "next_candidates": [
+    "M4",
     "M5"
   ],
-  "next_candidates_note": "M5 (dependency engine) now unblocked (deps M3+M4 complete). It consumes ProgramIndex.changed_symbols and the M4 store, and produces the reverse indexes + dirty-candidate discovery that M6 red/green needs.",
+  "active_nodes": [
+    "M6"
+  ],
+  "blocked_nodes": [],
+  "next_candidates": [
+    "M6"
+  ],
+  "next_candidates_note": "M6 (red/green invalidation with value-equality cutoff) now unblocked (deps M2+M5 complete). It consumes M5 observations + candidate discovery and the M2 oracle as external ground truth; must implement the red/green transition (§18) with R1/R2/R3 demonstrations and the explain record.",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M4",
-    "kind": "4 fresh adversarial review cycles: cycle 1 REPAIR_REQUIRED (4 BLOCKER + 2 IMPORTANT) -> cycle 2 REPAIR_REQUIRED (1 BLOCKER + 1 IMPORTANT) -> cycle 3 REPAIR_REQUIRED (1 IMPORTANT) -> cycle 4 GREEN / COMMIT_ALLOWED",
+    "node": "M5",
+    "kind": "6 fresh-context adversarial review cycles: cycles 1-4 REPAIR_REQUIRED (anchor loss, reduced-key identity conflation, bulk-loader canonical bypass, public mutable ObservedObservation fields, non-atomic publication) -> cycle 5 REPAIR_REQUIRED (3 IMPORTANT: centralized canonical decode, composite rollback/conflict-branch regressions, DECISIONS append-only) -> cycle 6 GREEN / COMMIT_ALLOWED (full-diff post-repair review)",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-08-M4-cycle4.md (cycles 1-3 linked therein)",
+    "record": ".agent/reviews/2026-09-14-M5-cycle6.md (cycles 1-5: 2026-09-08-M5-cycle{1..5}.md)",
     "open_findings": [],
-    "dispositioned": "6 OPTIONAL -> BACKLOG (model=None round-trip test, schema_version try_from, schema_meta classification, conflicting-duplicate Constraint, dir-fsync, Debug encodings, insertion-order test strengthening, impl dedup)",
-    "deviation_note": "None. Traits/migrations deferral and artifacts->snapshots FK drop recorded in DECISIONS."
+    "dispositioned": "No findings in cycle 6. All cycle 1-5 BLOCKER/IMPORTANT findings repaired and verified in code by the cycle-6 reviewer (discriminating tamper regression via same-length digest, transaction-rollback proof, anchor-conflict branch entry, centralized decode_observation_row, DECISIONS entries at file end).",
+    "deviation_note": "Reviewer-vehicle incident (2026-09-14): 7 fresh-review attempts across oracle/deep/general/ultrabrain vehicles failed on harness model-resolution/timeout faults (REVIEW_INCOMPLETE per .agent/REVIEWER.md — no commits made under those states); cycle 6 completed via a fresh explore-vehicle reviewer with full read access, read-only verified. Test-count typo in the M5 run log (177 -> 157) corrected by appended note; component sum and controller re-run agree on 157."
   },
   "last_gate_result": {
-    "ran_at": "2026-09-08",
-    "gate": "GLOBAL_GREEN + M4_PERSISTENCE_ACCEPTANCE",
+    "ran_at": "2026-09-14",
+    "gate": "GLOBAL_GREEN + M5_IMPACT_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "124 passed / 0 failed (6 cas + 39 core + 14 oracle + 22 program + 20 source + 23 store)",
+      "tests": "157 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy": "clean at -D warnings",
       "fmt": "clean",
-      "fixture_unittest": "18 passed, OK (baseline fixture)"
+      "note": "fixture unittest suite (18 OK) unaffected; M2 oracle labels untouched"
     }
   },
   "terminal_state": {
@@ -58,6 +61,7 @@
   "hygiene_notes": [
     "HARDENING (owner directive): control plane + AGENTS.md + frozen spec are version-controlled; spec canonical path is docs/architecture/TRELLIS_V0_1_FROZEN.md (single authoritative copy).",
     "Superseded owner decision: `.agent/` was gitignored during bootstrap; reversal recorded in DECISIONS.",
-    "origin/main at fac5f5f (M3 STATE record); commits 7996c1b (M2), 173f5a0 (M3), cc76bc1 (M4) onward are local until push is authorized per REMOTE_POLICY."
+    "origin/main at fac5f5f (M3 STATE record); commits 7996c1b (M2), 173f5a0 (M3), cc76bc1 (M4), a5a5e13 (M5) onward are local until push is authorized per REMOTE_POLICY.",
+    "ROADMAP reconciliation (2026-09-14): M3 status corrected from stale 'active' to 'completed' (STATE had recorded M3 completed at commit 173f5a0; ROADMAP status was left un-flipped in the M3 chore commit)."
   ]
 }
