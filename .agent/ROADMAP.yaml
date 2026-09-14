@@ -305,7 +305,7 @@ nodes:
   - id: M10
     objective: Benchmarks A (oracle validity) + B (systems economics) on the synthetic fixture (spec §25 A, B; §28).
     dependencies: [M2, M6, M7, M8]
-    status: active
+    status: completed
     deliverables:
       - Benchmark A harness: false-valid rate, stale recall, invalidation precision, abstention rate across full mutation catalog
       - Benchmark B harness: capture cost, reconciliation cost, projection validation, SCIP freeze cost, CAS/storage cost; p50/p95/p99; scaling vs frontier size
@@ -323,12 +323,15 @@ nodes:
     evidence:
       - benchmark results committed with run environment fingerprint
       - analysis note vs kill criteria (§28)
+      - commit 9de30af "test(bench): add Benchmarks A + B on the synthetic fixture (M10)"
+      - M10_BENCHMARK_ACCEPTANCE satisfied: A 54/54 rows match, false-valid 0, recall/precision 1.0, abstention 4; B 8.9× economic headroom (PREMISE HOLDS), flat frontier scaling, results committed under benchmarks/
+      - review: 1 fresh-context cycle GREEN/COMMIT_ALLOWED (docs-number IMPORTANT corrected) — .agent/reviews/2026-09-14-M10-cycle1.md; 193 tests green, clippy clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M11
     objective: Controlled-agent benchmark C — minimal agent loop, same-logical-tool-API fairness, baseline ladder (spec §25 C).
     dependencies: [M10]
-    status: pending
+    status: active
     deliverables:
       - minimal ReAct tool-loop agent (~500 lines Python) driving CLI/SDK
       - two conditions (plain vs trellis) behind the SAME logical tool API; identical semantic-query implementation (§25 fairness contract)
