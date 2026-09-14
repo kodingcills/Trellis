@@ -1,0 +1,15 @@
+[package]
+name = "trellis-scip"
+description = "Authoritative SCIP freeze adapter: batch ingest into Trellis's normalized program graph (spec §9.1, §8.2). SCIP knowledge lives ONLY here."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+trellis-core = { path = "../trellis-core" }
+scip = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -957,3 +957,40 @@ fn attestation_identity(
     material.push_str(&created_at.to_string());
     AttestationId::from_hash(ContentHash::compute(HashAlgo::Blake3, material.as_bytes()))
 }
+
+/// A semantic source backed by a frozen authoritative snapshot's
+/// normalized graph (M8): Callers/Implementations values come from the
+/// frozen SCIP graph; other kinds delegate to the syntactic backend.
+/// This is production wiring for `Transition` once a freeze has run.
+pub struct FrozenSemanticSource<'a> {
+    syntactic: SyntacticSource<'a>,
+    graph: &'a trellis_scip::ScipGraph,
+}
+
+impl<'a> FrozenSemanticSource<'a> {
+    /// Compose the frozen graph with the syntactic index.
+    #[must_use]
+    pub fn new(graph: &'a trellis_scip::ScipGraph, index: &'a PythonSyntaxIndex) -> Self {
+        Self {
+            syntactic: SyntacticSource::new(index),
+            graph,
+        }
+    }
+}
+
+impl ReevaluationSource for FrozenSemanticSource<'_> {
+    fn evaluate(&self, projection: &Projection) -> Result<Option<Evaluated>, TransitionError> {
+        match projection.kind() {
+            ProjectionKind::Callers => Ok(Some(Evaluated::new(
+                self.graph.callers_value(projection.subject().canonical()),
+                true,
+            ))),
+            ProjectionKind::Implementations => Ok(Some(Evaluated::new(
+                self.graph
+                    .implementations_value(projection.subject().canonical()),
+                true,
+            ))),
+            _ => self.syntactic.evaluate(projection),
+        }
+    }
+}

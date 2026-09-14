@@ -31,6 +31,17 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M8_FREEZE_ACCEPTANCE:
+    criteria:
+      - scip crate ingested ONLY in the trellis-scip adapter crate; zero SCIP types/knowledge in trellis-core/trellis-engine/trellis-program/trellis-store (grep-verified)
+      - batch ingest: a SCIP Index over the fixture normalizes into Trellis's own program graph (references/callers/implementations from occurrences + relationships); nothing ingested from unparseable/foreign documents without explicit accounting
+      - freeze produces a persisted SemanticSnapshotId; authoritative semantic queries (callers/implementations exact on the fixture) answered from the frozen snapshot and their CoverageCertificate claims resolved_reference + inheritance capabilities Established (capabilities SCIP can prove; §8.2 honesty floor)
+      - §6 freeze rule implemented via the change classifier: README-only (or .md/.txt/.cfg non-Python) change with an existing compatible SCIP snapshot → NO freeze required (semantic snapshot reused); auth/*.py change → freeze required for authoritative semantic decisions
+      - fixture freeze callers query exact vs oracle labels (R2/X1 members); fixture index produces the same canonical caller sets the oracle labels
+      - indexer identity/version/config recorded in coverage evidence (§8.1)
+      - M0-M7 tests unchanged and green; oracle labels untouched
+      - determinism: same index bytes → same SemanticSnapshotId, same normalized graph, same certificate
+    evidence_required: run log with test names + fresh review record
   M7_ABSENCE_ACCEPTANCE:
     criteria:
       - every completeness-sensitive observation binds (Q, U, C): universe digest + coverage digest + indexer identity persisted with the observation (§8.1); non-completeness-sensitive kinds bind none

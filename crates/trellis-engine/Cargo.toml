@@ -9,12 +9,14 @@ rust-version.workspace = true
 
 [dependencies]
 trellis-core = { path = "../trellis-core" }
+trellis-scip = { path = "../trellis-scip" }
 trellis-source = { path = "../trellis-source" }
 trellis-program = { path = "../trellis-program" }
 trellis-store = { path = "../trellis-store" }
 
 [dev-dependencies]
 tempfile = "3"
+scip = { workspace = true }
 trellis-oracle = { path = "../trellis-oracle" }
 trellis-cas = { path = "../trellis-cas" }
 rusqlite = { version = "0.37", features = ["bundled"] }
