@@ -3,18 +3,18 @@
   "updated_at": "2026-09-14",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "a5a5e13",
-  "current_green_commit_subject": "feat(engine): add conservative dirty-candidate discovery (M5)",
-  "current_green_commit_note": "M5 green checkpoint. Adds trellis-engine (observation production for syntactic kinds, snapshot-tied composite publication, reverse-index candidate discovery), store ENGINE_SCHEMA + fail-closed loaders, core canonical observation identity. GLOBAL_GREEN re-verified at this checkpoint (157 tests, clippy -D warnings, fmt). M2 oracle untouched; candidate discovery never decides staleness (M6 boundary held).",
+  "current_green_commit": "c672401",
+  "current_green_commit_subject": "feat(engine): add red/green invalidation with value-equality cutoff (M6)",
+  "current_green_commit_note": "M6 green checkpoint \u2014 first complete deterministic Trellis kernel (spec \u00a718). trellis-engine redgreen module: Transition (\u00a718 steps 2-12) with value-equality cutoff, contract evaluation against latest-attestation pinned evidence, content-derived attestation identity (idempotent/restart-safe), explain report. GLOBAL_GREEN re-verified (167 tests, clippy -D warnings, fmt). Oracle sweep R0-R4 + X1-X4 matches every catalog consequence row; X5 M7-gated.",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-14",
     "GLOBAL_GREEN": {
-      "cargo_test": "pass — 157 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 14 oracle + 22 program + 20 source + 27 store)",
-      "clippy_D_warnings": "pass — zero warnings",
+      "cargo_test": "pass \u2014 167 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 10 engine-redgreen + 14 oracle + 22 program + 20 source + 27 store)",
+      "clippy_D_warnings": "pass \u2014 zero warnings",
       "fmt_check": "pass"
     },
     "node_gates": {
-      "M5_IMPACT_ACCEPTANCE": "pass — all 8 criteria PASS with named tests; catalog-driven no-false-negative battery over M2 mutations R1-R4/X1-X5; run log .agent/runs/M5/2026-09-08-candidate-discovery.md"
+      "M6_ORACLE_ACCEPTANCE": "pass \u2014 all 11 criteria PASS with named tests; \u00a733 first acceptance trace + red/green counterexample end-to-end; catalog sweep R0-R4 + X1-X4 matches every artifact_consequences row; X5 documented as M7-gated. Run log .agent/runs/M6/2026-09-14-red-green-invalidation.md"
     }
   },
   "completed_nodes": [
@@ -23,40 +23,41 @@
     "M2",
     "M3",
     "M4",
-    "M5"
+    "M5",
+    "M6"
   ],
   "active_nodes": [
-    "M6"
+    "M7"
   ],
   "blocked_nodes": [],
   "next_candidates": [
-    "M6"
+    "M7"
   ],
-  "next_candidates_note": "M6 (red/green invalidation with value-equality cutoff) now unblocked (deps M2+M5 complete). It consumes M5 observations + candidate discovery and the M2 oracle as external ground truth; must implement the red/green transition (§18) with R1/R2/R3 demonstrations and the explain record.",
+  "next_candidates_note": "M7 (universe + coverage certificates) now unblocked (M6 complete). It consumes the M6 transition and adds: universe descriptor + digest, CoverageCertificate from the backend, per-projection-kind completeness requirements, CompletenessEvaluator (Requirements(Q) \u2286 Capabilities(C) \u2192 COMPLETE else UNKNOWN), and absence-claim authority semantics. X5 (coverage degradation \u2192 UNKNOWN) becomes real here.",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M5",
-    "kind": "6 fresh-context adversarial review cycles: cycles 1-4 REPAIR_REQUIRED (anchor loss, reduced-key identity conflation, bulk-loader canonical bypass, public mutable ObservedObservation fields, non-atomic publication) -> cycle 5 REPAIR_REQUIRED (3 IMPORTANT: centralized canonical decode, composite rollback/conflict-branch regressions, DECISIONS append-only) -> cycle 6 GREEN / COMMIT_ALLOWED (full-diff post-repair review)",
+    "node": "M6",
+    "kind": "1 fresh-context adversarial review cycle: GREEN / COMMIT_ALLOWED (full candidate diff review)",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-14-M5-cycle6.md (cycles 1-5: 2026-09-08-M5-cycle{1..5}.md)",
+    "record": ".agent/reviews/2026-09-14-M6-cycle1.md",
     "open_findings": [],
-    "dispositioned": "No findings in cycle 6. All cycle 1-5 BLOCKER/IMPORTANT findings repaired and verified in code by the cycle-6 reviewer (discriminating tamper regression via same-length digest, transaction-rollback proof, anchor-conflict branch entry, centralized decode_observation_row, DECISIONS entries at file end).",
-    "deviation_note": "Reviewer-vehicle incident (2026-09-14): 7 fresh-review attempts across oracle/deep/general/ultrabrain vehicles failed on harness model-resolution/timeout faults (REVIEW_INCOMPLETE per .agent/REVIEWER.md — no commits made under those states); cycle 6 completed via a fresh explore-vehicle reviewer with full read access, read-only verified. Test-count typo in the M5 run log (177 -> 157) corrected by appended note; component sum and controller re-run agree on 157."
+    "dispositioned": "1 OPTIONAL \u2192 BACKLOG (KindMismatch catch-all label; ProjectionOutcome.prior_digest earliest-vs-latest cosmetics).",
+    "deviation_note": "None."
   },
   "last_gate_result": {
     "ran_at": "2026-09-14",
-    "gate": "GLOBAL_GREEN + M5_IMPACT_ACCEPTANCE",
+    "gate": "GLOBAL_GREEN + M6_ORACLE_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "157 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 14 oracle + 22 program + 20 source + 27 store)",
+      "tests": "167 passed / 0 failed (6 cas + 40 core + 6 engine-observe + 22 engine-discovery + 10 engine-redgreen + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy": "clean at -D warnings",
       "fmt": "clean",
-      "note": "fixture unittest suite (18 OK) unaffected; M2 oracle labels untouched"
+      "fixture_unittest": "18 OK (M2 labels untouched)"
     }
   },
   "terminal_state": {
     "v0_1_complete": false,
-    "condition": "All ROADMAP nodes completed with evidence; frozen DoD (spec §32) satisfied; zero BLOCKER findings; repo clean and reproducible. Then emit V0_1_COMPLETE and stop."
+    "condition": "All ROADMAP nodes completed with evidence; frozen DoD (spec \u00a732) satisfied; zero BLOCKER findings; repo clean and reproducible. Then emit V0_1_COMPLETE and stop."
   },
   "hygiene_notes": [
     "HARDENING (owner directive): control plane + AGENTS.md + frozen spec are version-controlled; spec canonical path is docs/architecture/TRELLIS_V0_1_FROZEN.md (single authoritative copy).",

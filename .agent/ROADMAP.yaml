@@ -193,7 +193,7 @@ nodes:
   - id: M6
     objective: Red/green invalidation with value-equality cutoff and causal explanation (spec §18).
     dependencies: [M2, M5]
-    status: active
+    status: completed
     deliverables:
       - projection reevaluation for dirty candidates
       - GREEN on old value == new value; DIRTY/VERIFY/STALE path otherwise
@@ -214,12 +214,15 @@ nodes:
     evidence:
       - oracle validation run results (all R0-R4 labels matched or deviations explained)
       - explain trace samples in run log
+      - commit c672401 "feat(engine): add red/green invalidation with value-equality cutoff (M6)"; trellis-engine redgreen module (Transition, ReevaluationSource, contract evaluation, explain report), observe.rs shared canonical encoding, store artifacts_by_dependency
+      - M6_ORACLE_ACCEPTANCE satisfied: all 11 criteria PASS with named tests; catalog sweep R0-R4 + X1-X4 matches every consequence row; run log .agent/runs/M6/2026-09-14-red-green-invalidation.md
+      - review: 1 fresh-context cycle GREEN/COMMIT_ALLOWED — .agent/reviews/2026-09-14-M6-cycle1.md; 167 tests green, clippy clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M7
     objective: Universe + coverage certificates — requirements/capabilities split and completeness evaluator for absence claims (spec §8).
     dependencies: [M6]
-    status: pending
+    status: active
     deliverables:
       - universe descriptor + universe digest as a dependency (§8.1)
       - CoverageCertificate produced by the program-index backend (§8.2)
