@@ -386,7 +386,7 @@ nodes:
   - id: RELEASE_V0_1
     objective: v0.1 terminal condition — frozen Definition of Done satisfied (spec §32, §28).
     dependencies: [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12]
-    status: active
+    status: completed
     deliverables:
       - all node evidence assembled and re-verified from a clean checkout
       - documentation matches implementation (AGENTS.md, README, spec deltas only via DECISIONS)
@@ -405,3 +405,6 @@ nodes:
     evidence:
       - completed DoD checklist committed
       - V0_1_COMPLETE emitted in run log; STATE.json terminal marker set
+      - commit b9325a3 "docs(release): complete RELEASE_V0_1 DoD audit and repairs"
+      - RELEASE_DOD_AUDIT satisfied: §28 items 1-9 + §32 clauses all demonstrated; two independent audits (initial REPAIR_REQUIRED with 2 findings, both repaired; closure re-audit GREEN / RELEASE_APPROVED, zero findings) — .agent/reviews/2026-09-14-RELEASE-audit{,2}.md
+      - final gates: 195 tests green, clippy -D warnings clean, fmt clean; benchmarks committed (A false-valid 0; B 9.1x headroom HOLDS; C 100% success/0 stale; OSS 156/156)
