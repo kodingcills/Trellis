@@ -1,0 +1,8 @@
+{
+  "project": "pip",
+  "version": "26.2.1",
+  "license": "MIT",
+  "pin_note": "Vendored snapshot of pip 26.2.1's own package tree (upstream https://github.com/pypa/pip at release 26.2.1; content digest below is the lock identity). NEVER treated as a validity oracle (spec \u00a726).",
+  "file_count_py": 156,
+  "content_digest": "9bf8e4995e1e84b65fcd1300a301a511e5e3279c2da6dc048cce1bc96e9c8612"
+}

@@ -1,0 +1,19 @@
+M12 — pinned OSS external validation (spec §26, §25 D)
+========================================================
+fixture: pip 26.2.1 (vendored snapshot, MIT license)
+pin: content digest 9bf8e4995e1e84b65fcd1300a301a511e5e3279c2da6dc048cce1bc96e9c8612
+files indexed: 156 (parsed 156, parse-failed 0 — explicit evidence, never silent)
+
+resource envelope:
+index (full vendored tree): 308880us
+reconcile (add/modify/delete smoke): 21170us
+
+coverage report:
+covered subset (_internal/utils/*): 26 files
+syntax-backend certificate: resolution Unproven → semantic
+kinds answer UNKNOWN over this repo (never authoritative
+absence, §8.2; authoritative semantics arrive via the M8
+SCIP freeze path over a real scip-python index)
+
+NOT an oracle: this fixture validates realism/integration only;
+upstream drift is handled by the content-digest pin alone.

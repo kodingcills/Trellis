@@ -31,6 +31,15 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M12_OSS_ACCEPTANCE:
+    criteria:
+      - pinned fixture is real OSS Python code at a recorded lock (project, version, content digest in PIN.json + DECISIONS); the fixture is NEVER treated as a validity oracle
+      - index + reconcile + candidate discovery run on the pinned repo within a recorded resource envelope (counts + timings committed)
+      - indexing coverage report committed (files indexed, parse failures explicit, definitions extracted); gaps fed back as evidence, not blockers
+      - absence-claim behavior on partially-covered files matches M7 semantics: uncovered module → UNKNOWN, never authoritative absence
+      - upstream drift handled by pinning only (content digest lock); no rebasing expectations
+      - no benchmark-specific shortcuts in production code; M0-M11 tests unchanged and green
+    evidence_required: run log with coverage report + fresh review record
   M11_AGENT_BENCHMARK_ACCEPTANCE:
     criteria:
       - independent variable is capture/validity/reuse ONLY: every rung executes the IDENTICAL semantic-query implementation (callers(foo) runs the same underlying caller query in all conditions); no rung receives better program intelligence (§25 fairness contract)
