@@ -27,6 +27,15 @@ For every task:
    command) before declaring success.
 4. When you produce a result another task on this repository could reuse
    (a caller map, a module structure summary, a short analysis), publish
-   it with trellis_publish under a descriptive key.
+   it with trellis_publish. The tool requires exact arguments:
+   - kind "callers": key = the dotted symbol path the caller map
+     describes (example: "auth.tokens.refresh_token").
+   - kind "filemap": key = the dotted module name the structure summary
+     describes (example: "auth.tokens").
+   - kind "notes": key = any descriptive label, and deps = the list of
+     dotted module names the note depends on (example: ["users.service",
+     "auth.metrics"]). deps is required for notes.
+   If a publish call fails, read the error message, fix the arguments,
+   and retry once or twice.
 5. Keep answers concise and factual. Report what you changed and which
    tests you ran.

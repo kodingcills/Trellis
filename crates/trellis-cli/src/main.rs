@@ -122,6 +122,12 @@ fn coverage_for(tree: &BTreeMap<String, String>) -> CoverageContext {
     }
 }
 
+fn manifest_options(repo: &Path) -> ManifestOptions {
+    let mut options = ManifestOptions::new(repo);
+    options.exclude_dirs.push(".opencode".to_string());
+    options
+}
+
 fn manifest_from_state(cli: &CliState) -> Option<Manifest> {
     let entries: Vec<ManifestEntry> = cli
         .manifest_entries
@@ -145,12 +151,12 @@ fn reconcile_current(
     cli: &mut CliState,
 ) -> CliResult<(ChangedSet, BTreeMap<String, String>)> {
     let changed = if let Some(stored) = manifest_from_state(cli) {
-        reconcile_against_working_tree(&stored, &ManifestOptions::new(repo))
+        reconcile_against_working_tree(&stored, &manifest_options(repo))
             .map_err(|e| e.to_string())?
     } else {
         // No persisted manifest (first run after init): treat the whole
         // tree as changed — every projection reevaluates once.
-        let current = build_manifest(&ManifestOptions::new(repo)).map_err(|e| e.to_string())?;
+        let current = build_manifest(&manifest_options(repo)).map_err(|e| e.to_string())?;
         ChangedSet {
             added: current.entries().iter().map(|e| e.path.clone()).collect(),
             modified: Vec::new(),
@@ -166,7 +172,7 @@ fn reconcile_current(
         .filter(|p| *p != snapshot);
     put_snapshot_row(store, snapshot, parent, now_ms());
     cli.head = Some(snapshot.to_string());
-    let manifest = build_manifest(&ManifestOptions::new(repo)).map_err(|e| e.to_string())?;
+    let manifest = build_manifest(&manifest_options(repo)).map_err(|e| e.to_string())?;
     cli.manifest_entries = manifest
         .entries()
         .iter()
@@ -184,7 +190,7 @@ fn cmd_init(repo: PathBuf, store_path: PathBuf) -> CliResult<serde_json::Value> 
     let mut store = Store::open(&store_path).map_err(|e| e.to_string())?;
     let snapshot = snapshot_id_for(&tree);
     put_snapshot_row(&mut store, snapshot, None, now_ms());
-    let manifest = build_manifest(&ManifestOptions::new(&repo)).map_err(|e| e.to_string())?;
+    let manifest = build_manifest(&manifest_options(&repo)).map_err(|e| e.to_string())?;
     let cli = CliState {
         head: Some(snapshot.to_string()),
         manifest_entries: manifest
@@ -261,22 +267,33 @@ fn dependency_projections(
         "callers" => Ok(vec![
             Projection::callers(key, Scope::Repository).map_err(|e| e.to_string())?
         ]),
-        "filemap" => Ok(vec![
-            Projection::file(state::module_path(key).as_str()).map_err(|e| e.to_string())?
-        ]),
+        "filemap" => {
+            let path = state::module_path(key);
+            if !tree.contains_key(&path) {
+                return Err(format!(
+                    "filemap key must be a dotted module name present in the tree (e.g. auth.tokens); '{key}' resolves to missing {path}"
+                ));
+            }
+            Ok(vec![
+                Projection::file(state::module_path(key).as_str()).map_err(|e| e.to_string())?
+            ])
+        }
         "notes" => {
             let mut out = Vec::new();
             for dep in deps {
                 let path = state::module_path(dep);
                 if !tree.contains_key(&path) {
                     return Err(format!(
-                        "--dep {dep} resolves to {path}, not present in tree"
+                        "notes dep must be a dotted module name present in the tree (e.g. users.service); '{dep}' resolves to missing {path}"
                     ));
                 }
                 out.push(Projection::file(&path).map_err(|e| e.to_string())?);
             }
             if out.is_empty() {
-                return Err("notes artifacts require at least one --dep FILE".to_string());
+                return Err(
+                    "notes artifacts require at least one --dep FILE (dotted module names the note depends on)"
+                        .to_string(),
+                );
             }
             Ok(out)
         }
@@ -317,7 +334,10 @@ fn cmd_publish(
     let start = Instant::now();
     let mut store = Store::open(&store_path).map_err(|e| e.to_string())?;
     let mut cli = CliState::load(&store_path);
-    let tree = state::read_tree(&repo)?;
+    // Advance persisted state to the current tree first: the task that
+    // produced the artifact already edited files, so publish's snapshot
+    // id must exist (observations/envelope/attestation all FK to it).
+    let (_, tree) = reconcile_current(&repo, &mut store, &mut cli)?;
     let index = PythonSyntaxIndex::index(&tree);
     let source = CliSemanticSource::new(&index, &tree);
     let snapshot = snapshot_id_for(&tree);
@@ -422,14 +442,6 @@ fn cmd_publish(
     );
     store.append_attestation(&att).map_err(|e| e.to_string())?;
 
-    // Manifest baseline so the next reconcile sees only later changes.
-    let manifest = build_manifest(&ManifestOptions::new(&repo)).map_err(|e| e.to_string())?;
-    cli.manifest_entries = manifest
-        .entries()
-        .iter()
-        .map(|e| (e.path.clone(), e.digest.to_string()))
-        .collect();
-    cli.head = Some(snapshot.to_string());
     cli.artifacts.insert(
         key.to_string(),
         state::ArtifactEntry {
