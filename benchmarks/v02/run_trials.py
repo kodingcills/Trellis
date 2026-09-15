@@ -203,42 +203,70 @@ def run_cli(args: list, env: dict) -> str:
     return proc.stdout
 
 
-def reset_store(repo: Path, store: Path) -> None:
-    """Condition A: nothing may survive from earlier tasks in the chain."""
-    store.unlink(missing_ok=True)
-    sidecar = store.with_name("cli_state.json")
-    sidecar.unlink(missing_ok=True)
-    events = store.with_name("events.jsonl")
-    events.unlink(missing_ok=True)
-    (repo / ".trellis-events.jsonl").unlink(missing_ok=True)
-    run_cli(["init", "--repo", str(repo), "--store", str(store)], cli_env(repo, store))
-
-
 def store_path(repo: Path) -> Path:
     return repo.parent / "store.db"
 
 
-def run_agent(task_spec: str, repo: Path, model: str, store: Path) -> tuple[dict, float]:
+def run_agent(task_spec: str, repo: Path, model: str, condition: str) -> tuple[dict, float]:
     started = time.time()
-    proc = subprocess.run(
-        [
-            str(OPC), "run", task_spec,
-            "--agent", "trellis-worker",
-            "-m", model,
-            "--auto",
-            "--format", "json",
-        ],
-        cwd=repo,
-        capture_output=True,
-        text=True,
-        timeout=TASK_TIMEOUT_S,
-        env=cli_env(repo, store_path(repo)),
-    )
+    ledger = repo / ".trellis-events.jsonl"
+    ledger_before = ledger.read_text().splitlines() if ledger.exists() else []
+    try:
+        proc = subprocess.run(
+            [
+                str(OPC), "run", task_spec,
+                "--agent", "trellis-worker",
+                "-m", model,
+                "--auto",
+                "--format", "json",
+            ],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=TASK_TIMEOUT_S,
+            env=cli_env(repo, store_path(repo)) | {"TRELLIS_MODE": "trellis" if condition == "B" else "baseline"},
+        )
+        stdout, failed = proc.stdout, proc.returncode != 0
+    except subprocess.TimeoutExpired as exc:
+        # Keep partial metrics: the JSON event stream up to the timeout
+        # is on the exception object.
+        stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        failed = True
     wall = time.time() - started
-    metrics = parse_events(proc.stdout)
+    metrics = parse_events(stdout)
     metrics["wall_clock_s"] = round(wall, 1)
-    metrics["run_failed"] = proc.returncode != 0
+    metrics["run_failed"] = failed
+    ledger_after = ledger.read_text().splitlines() if ledger.exists() else []
+    new_events = ledger_after[len(ledger_before):] if len(ledger_after) > len(ledger_before) else []
+    metrics.update(parse_tool_ledger(new_events))
     return metrics
+
+
+def parse_tool_ledger(lines: list) -> dict:
+    """Direct mechanism metrics from the CLI's per-tool-call ledger."""
+    out = {
+        "avoided_underlying_computations": 0,
+        "served_fresh": 0,
+        "captured_now": 0,
+        "tool_validation_us": 0,
+    }
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("op") != "tool":
+            continue
+        tag = event.get("tag")
+        out["tool_validation_us"] += event.get("elapsed_us", 0)
+        if tag == "reuse":
+            out["avoided_underlying_computations"] += 1
+        elif tag == "fresh+captured":
+            out["captured_now"] += 1
+            out["served_fresh"] += 1
+        else:
+            out["served_fresh"] += 1
+    return out
 
 
 def parse_events(stdout: str) -> dict:
@@ -253,10 +281,8 @@ def parse_events(stdout: str) -> dict:
         "repo_searches": 0,
         "shell_cmds": 0,
         "edits": 0,
-        "trellis_status": 0,
-        "trellis_retrieve": 0,
-        "trellis_query": 0,
-        "trellis_publish": 0,
+        "code_query_calls": 0,
+        "trellis_agent_ceremony_calls": 0,
     }
     for line in stdout.splitlines():
         line = line.strip()
@@ -288,37 +314,20 @@ def parse_events(stdout: str) -> dict:
                 metrics["shell_cmds"] += 1
             elif tool in ("edit", "write"):
                 metrics["edits"] += 1
-            elif tool == "trellis_trellis_status":
-                metrics["trellis_status"] += 1
-            elif tool == "trellis_trellis_retrieve":
-                metrics["trellis_retrieve"] += 1
-            elif tool == "trellis_trellis_query":
-                metrics["trellis_query"] += 1
-            elif tool == "trellis_trellis_publish":
-                metrics["trellis_publish"] += 1
+            elif tool == "trellis_code_query":
+                metrics["code_query_calls"] += 1
+            if tool.startswith("trellis_") and tool != "trellis_code_query":
+                metrics["trellis_agent_ceremony_calls"] += 1
     return metrics
 
 
-def trellis_verdicts(store: Path) -> dict:
-    """Aggregate the store's events ledger for one condition workspace."""
-    events_path = store.with_name("events.jsonl")
-    out = {"retrieve_valid": 0, "retrieve_stale": 0, "retrieve_unknown": 0,
-           "publish": 0, "validation_us": 0}
-    if not events_path.exists():
-        return out
-    for line in events_path.read_text().splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        op = event.get("op")
-        tag = event.get("tag")
-        out["validation_us"] += event.get("elapsed_us", 0)
-        if op == "retrieve":
-            out[f"retrieve_{tag}"] = out.get(f"retrieve_{tag}", 0) + 1
-        elif op == "publish":
-            out["publish"] += 1
-    return out
+QUERY_ENVELOPE = (
+    "\n\nBefore making any edits, first use the code_query tool to map the "
+    "affected code: call code_query(kind=\"definitions\", subject=\"<the main "
+    "dotted module of this task>\") and code_query(kind=\"callers\", "
+    "subject=\"<the primary dotted symbol this task changes>\"). Then do "
+    "the task and run the test suite."
+)
 
 
 def run_trial(trial: int, model: str) -> list:
@@ -327,10 +336,7 @@ def run_trial(trial: int, model: str) -> list:
     for condition in order:
         repo, store = fresh_condition_workspace(trial, condition)
         for task in TASKS:
-            if condition == "A":
-                reset_store(repo, store)  # nothing to reuse across tasks
-            metrics = run_agent(task["spec"], repo, model, store)
-            verdicts = trellis_verdicts(store)
+            metrics = run_agent(task["spec"] + QUERY_ENVELOPE, repo, model, condition)
             success = task["verify"](repo)
             rows.append({
                 "trial": trial,
@@ -338,13 +344,14 @@ def run_trial(trial: int, model: str) -> list:
                 "task": task["id"],
                 "success": success,
                 **metrics,
-                **verdicts,
             })
             print(f"  trial {trial} {condition} {task['id']}: "
                   f"success={success} wall={metrics['wall_clock_s']}s "
                   f"in={metrics['input_tokens']} out={metrics['output_tokens']} "
                   f"toolops={metrics['tool_ops']} "
-                  f"(reused={verdicts['retrieve_valid']})")
+                  f"(reuse={metrics['avoided_underlying_computations']} "
+                  f"captured={metrics['captured_now']} "
+                  f"ceremony={metrics['trellis_agent_ceremony_calls']})")
     return rows
 
 

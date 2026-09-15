@@ -264,8 +264,15 @@ fn dependency_projections(
     tree: &BTreeMap<String, String>,
 ) -> CliResult<Vec<Projection>> {
     match kind {
-        "callers" => Ok(vec![
+        // `references` resolves through the same approximated caller set
+        // as `callers` (the labeled textual resolver), so the projection
+        // and its validity semantics are shared.
+        "callers" | "references" => Ok(vec![
             Projection::callers(key, Scope::Repository).map_err(|e| e.to_string())?
+        ]),
+        "definitions" => Ok(vec![Projection::definition(key).map_err(|e| e.to_string())?]),
+        "imports" => Ok(vec![
+            Projection::imports(key, Scope::Module).map_err(|e| e.to_string())?
         ]),
         "filemap" => {
             let path = state::module_path(key);
@@ -307,10 +314,22 @@ fn anchor_for(projection: &Projection, tree: &BTreeMap<String, String>) -> CliRe
     match projection.kind() {
         ProjectionKind::FileContent => Ok(projection.subject().canonical().to_string()),
         ProjectionKind::Imports => Ok(state::module_path(projection.subject().canonical())),
-        ProjectionKind::Callers
-        | ProjectionKind::References
-        | ProjectionKind::Definition
-        | ProjectionKind::Signature => {
+        ProjectionKind::Definition => {
+            // Definition projections are keyed by symbol OR module
+            // subject; a module subject anchors at its own file.
+            let subject = projection.subject().canonical();
+            if tree.contains_key(state::module_path(subject).as_str()) {
+                Ok(state::module_path(subject))
+            } else {
+                let parts: Vec<&str> = subject.split('.').collect();
+                (1..parts.len())
+                    .rev()
+                    .map(|n| state::module_path(&parts[..n].join(".")))
+                    .find(|p| tree.contains_key(p))
+                    .ok_or_else(|| format!("definition site of {subject} not found in tree"))
+            }
+        }
+        ProjectionKind::Callers | ProjectionKind::References | ProjectionKind::Signature => {
             let subject = projection.subject().canonical();
             let parts: Vec<&str> = subject.split('.').collect();
             (1..parts.len())
@@ -652,6 +671,265 @@ fn cmd_query(repo: PathBuf, kind: &str, subject: &str) -> CliResult<serde_json::
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// Transparent deterministic tool reuse (v0.2 ablation)
+// ─────────────────────────────────────────────────────────────────────
+
+/// The identical computation runs in both conditions; only whether a
+/// validated artifact may serve it first differs.
+fn compute_fresh(
+    kind: &str,
+    subject: &str,
+    tree: &BTreeMap<String, String>,
+    index: &PythonSyntaxIndex,
+) -> CliResult<String> {
+    match kind {
+        "callers" => Ok(CliSemanticSource::new(index, tree).approx_callers(subject)),
+        "references" => Ok(CliSemanticSource::new(index, tree).approx_callers(subject)),
+        "definitions" => {
+            let projection = Projection::definition(subject).map_err(|e| e.to_string())?;
+            Ok(CliSemanticSource::new(index, tree)
+                .evaluate(&projection)
+                .map_err(|e| e.to_string())?
+                .map(|ev| ev.value().to_string())
+                .unwrap_or_default())
+        }
+        "imports" => {
+            let projection =
+                Projection::imports(subject, Scope::Module).map_err(|e| e.to_string())?;
+            Ok(CliSemanticSource::new(index, tree)
+                .evaluate(&projection)
+                .map_err(|e| e.to_string())?
+                .map(|ev| ev.value().to_string())
+                .unwrap_or_default())
+        }
+        other => Err(format!("unknown tool kind {other}")),
+    }
+}
+
+/// Baseline serves fresh; trellis serves stored only when the engine
+/// verdict is Valid AND payload pins match reevaluated dependencies,
+/// else computes fresh and auto-captures. Response shape is identical
+/// in both conditions except the instrumented `served_from` field.
+fn cmd_tool(
+    repo: PathBuf,
+    store_path: PathBuf,
+    mode: &str,
+    kind: &str,
+    subject: &str,
+) -> CliResult<serde_json::Value> {
+    let start = Instant::now();
+    let tree = state::read_tree(&repo)?;
+    let index = PythonSyntaxIndex::index(&tree);
+    let fresh_value = compute_fresh(kind, subject, &tree, &index)?;
+
+    let (served_from, value) = if mode == "baseline" {
+        ("fresh", fresh_value.clone())
+    } else {
+        let mut store = Store::open(&store_path).map_err(|e| e.to_string())?;
+        let mut cli = CliState::load(&store_path);
+        let (changed, tree) = reconcile_current(&repo, &mut store, &mut cli)?;
+        let index = PythonSyntaxIndex::index(&tree);
+        let source = CliSemanticSource::new(&index, &tree);
+        let snapshot = snapshot_id_for(&tree);
+        let transition = Transition::new(&mut store, &source, changed, snapshot, now_ms())
+            .with_coverage(coverage_for(&tree));
+        let _report = transition.run().map_err(|e| e.to_string())?;
+
+        // Look for any artifact whose dependencies cover this query and
+        // whose payload pins still match. Validity comes from the engine
+        // transition above; pins close the settled-change gap.
+        let mut served: Option<String> = None;
+        for entry in cli.artifacts.values() {
+            if entry.kind != kind && !(kind == "references" && entry.kind == "callers") {
+                continue;
+            }
+            let Ok(art_id) = entry.id.parse::<ArtifactId>() else {
+                continue;
+            };
+            let Ok(artifact) = store.get_artifact(&art_id) else {
+                continue;
+            };
+            let validity = store
+                .attestation_history(&art_id)
+                .ok()
+                .and_then(|h| h.iter().last().map(|a| a.validity()));
+            if validity != Some(Validity::Valid) {
+                continue;
+            }
+            let Ok(bytes) = store.get_blob(&artifact.payload_ref()) else {
+                continue;
+            };
+            let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                continue;
+            };
+            let pins = match payload["pins"].as_array() {
+                Some(pins) => pins
+                    .iter()
+                    .filter_map(|p| {
+                        Some((
+                            p[0].as_str()?.to_string(),
+                            p[1].as_str()?.to_string(),
+                            p[2].as_str()?.to_string(),
+                            p[3].as_str()?.to_string(),
+                        ))
+                    })
+                    .collect::<Vec<(String, String, String, String)>>(),
+                None => continue,
+            };
+            let pin_kind_expected = match kind {
+                "callers" | "references" => "callers",
+                "definitions" => "definition",
+                "imports" => "imports",
+                other => other,
+            };
+            let covers_query = pins
+                .iter()
+                .any(|(k, s, _, _)| k == pin_kind_expected && s == subject);
+            if !covers_query {
+                continue;
+            }
+            let mut pins_current = true;
+            for (k, s, sc, pinned_digest) in &pins {
+                let Ok(projection) = pin_projection(k, s, sc) else {
+                    pins_current = false;
+                    break;
+                };
+                let current = source
+                    .evaluate(&projection)
+                    .map_err(|e| e.to_string())?
+                    .map(|ev| digest_str(ev.value()).to_string())
+                    .unwrap_or_default();
+                if pinned_digest != &current {
+                    pins_current = false;
+                    break;
+                }
+            }
+            if pins_current {
+                served = Some(payload["value"].as_str().unwrap_or_default().to_string());
+                break;
+            }
+        }
+
+        match served {
+            Some(v) => ("reuse", v),
+            None => {
+                // Auto-capture: the identical machinery as explicit
+                // publish, driven by the tool call itself. Key names the
+                // deterministic query; value is the fresh computation.
+                let created = now_ms();
+                let key = format!("{kind}:{subject}");
+                let projections = dependency_projections(kind, subject, &[], &tree)?;
+                let mut dep_ids = Vec::new();
+                let mut evidence = Vec::new();
+                let mut pins: Vec<(String, String, String, String)> = Vec::new();
+                for projection in &projections {
+                    let evaluated = source
+                        .evaluate(projection)
+                        .map_err(|e| e.to_string())?
+                        .ok_or_else(|| format!("source cannot evaluate {:?}", projection.kind()))?;
+                    let digest = digest_str(evaluated.value());
+                    pins.push((
+                        pin_kind(projection).to_string(),
+                        projection.subject().canonical().to_string(),
+                        pin_scope(projection),
+                        digest.to_string(),
+                    ));
+                    let obs = ProjectionObservation::new(
+                        canonical_observation_id(&projection.id(), &digest, &snapshot),
+                        projection.id(),
+                        snapshot,
+                        digest,
+                        None,
+                    );
+                    let anchor = anchor_for(projection, &tree)?;
+                    store
+                        .record_observation_record(projection, &obs, &anchor)
+                        .map_err(|e| e.to_string())?;
+                    evidence.push(EvidenceRef::Observation(obs.id()));
+                    dep_ids.push(projection.id());
+                }
+                let art_id = artifact_key_id(&key, created);
+                let blob_payload = serde_json::json!({
+                    "pins": pins.iter()
+                        .map(|(k, s, sc, d)| serde_json::json!([k, s, sc, d]))
+                        .collect::<Vec<_>>(),
+                    "value": fresh_value,
+                });
+                let blob = store
+                    .put_blob(blob_payload.to_string().as_bytes())
+                    .map_err(|e| e.to_string())?;
+                let proposition =
+                    Proposition::new(format!("deterministic tool result for {kind}({subject})"))
+                        .map_err(|e| e.to_string())?;
+                let derivation = Derivation::new(
+                    DerivationId::from_hash(digest_str(&format!(
+                        "trellis.cli.derivation:{key}:{created}"
+                    ))),
+                    vec![trellis_core::validity::CaptureChannel::TrellisTool],
+                    ProducerInfo::new(PRODUCER, "0.2.0", None).map_err(|e| e.to_string())?,
+                    created,
+                );
+                let envelope = ArtifactEnvelope::new(
+                    art_id,
+                    1,
+                    ArtifactKind::StructuralSet,
+                    blob,
+                    Some(proposition),
+                    ProducerInfo::new(PRODUCER, "0.2.0", None).map_err(|e| e.to_string())?,
+                    derivation.clone(),
+                    dep_ids,
+                    snapshot,
+                    CostRecord::default(),
+                )
+                .map_err(|e| e.to_string())?;
+                store.put_artifact(&envelope).map_err(|e| e.to_string())?;
+                let att = ValidationAttestation::for_derivation(
+                    AttestationId::from_hash(digest_str(&format!(
+                        "trellis.cli.seed:{key}:{created}"
+                    ))),
+                    art_id,
+                    &derivation,
+                    snapshot,
+                    None,
+                    Validity::Valid,
+                    Authority::Authoritative,
+                    VerificationLevel::Structural,
+                    Some(contract_verifier_id(SET_EQUALITY)),
+                    evidence,
+                    created,
+                );
+                store.append_attestation(&att).map_err(|e| e.to_string())?;
+                cli.artifacts.insert(
+                    key.clone(),
+                    state::ArtifactEntry {
+                        id: art_id.to_string(),
+                        kind: kind.to_string(),
+                    },
+                );
+                cli.save(&store_path)?;
+                ("fresh+captured", fresh_value)
+            }
+        }
+    };
+
+    let event_path = repo.join(".trellis-events.jsonl");
+    state::emit_event_at(
+        &event_path,
+        "tool",
+        None,
+        Some(&format!("{kind}:{subject}")),
+        served_from,
+        start.elapsed().as_micros() as u64,
+    );
+    Ok(serde_json::json!({
+        "ok": true, "kind": kind, "subject": subject,
+        "backend": semantic::APPROX_BACKEND,
+        "value": value,
+        "served_from": served_from,
+    }))
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // Argument parsing (hand-rolled; no new dependency beyond serde_json)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -663,6 +941,7 @@ struct Args {
     kind: Option<String>,
     value: Option<String>,
     subject: Option<String>,
+    mode: Option<String>,
     deps: Vec<String>,
 }
 
@@ -677,6 +956,7 @@ fn parse_args() -> CliResult<Args> {
         kind: None,
         value: None,
         subject: None,
+        mode: None,
         deps: Vec::new(),
     };
     while let Some(flag) = it.next() {
@@ -687,6 +967,7 @@ fn parse_args() -> CliResult<Args> {
             "--kind" => args.kind = Some(it.next().ok_or("missing value for --kind")?),
             "--value" => args.value = Some(it.next().ok_or("missing value for --value")?),
             "--subject" => args.subject = Some(it.next().ok_or("missing value for --subject")?),
+            "--mode" => args.mode = Some(it.next().ok_or("missing value for --mode")?),
             "--dep" => args.deps.push(it.next().ok_or("missing value for --dep")?),
             other => return Err(format!("unknown flag {other}")),
         }
@@ -723,6 +1004,13 @@ fn run(args: Args) -> CliResult<serde_json::Value> {
         ),
         "query" => cmd_query(
             require(args.repo, "--repo")?,
+            &require(args.kind, "--kind")?,
+            &require(args.subject, "--subject")?,
+        ),
+        "tool" => cmd_tool(
+            require(args.repo, "--repo")?,
+            args.store.unwrap_or_else(|| PathBuf::from("/dev/null")),
+            require(args.mode, "--mode")?.as_str(),
             &require(args.kind, "--kind")?,
             &require(args.subject, "--subject")?,
         ),

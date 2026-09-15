@@ -20,63 +20,22 @@ PROTOCOL_VERSION = "2024-11-05"
 
 TOOLS = [
     {
-        "name": "trellis_status",
+        "name": "code_query",
         "description": (
-            "List published Trellis artifacts and their current validity "
-            "(valid/stale/unknown) against the current repository state."
-        ),
-        "inputSchema": {"type": "object", "properties": {}, "required": []},
-    },
-    {
-        "name": "trellis_retrieve",
-        "description": (
-            "Retrieve a reusable artifact by key. Returns a verdict "
-            "(valid|stale|unknown) plus the artifact value ONLY when valid. "
-            "Stale/unknown artifacts are never returned as trusted knowledge; "
-            "an explanation of what changed is included instead."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"key": {"type": "string"}},
-            "required": ["key"],
-        },
-    },
-    {
-        "name": "trellis_query",
-        "description": (
-            "Fresh structural/semantic query over the CURRENT tree (always "
-            "recomputed, never cached). kind=callers|references|definitions|"
-            "imports; subject is a dotted symbol path. callers/references use "
-            "a labeled approximate textual resolver."
+            "Structural query over the repository. kind: 'callers' = modules "
+            "that call the symbol (dotted path like auth.tokens.refresh_token); "
+            "'definitions' = definitions in a module (dotted module name); "
+            "'imports' = import list of a module (dotted module name). Returns "
+            "a semicolon-joined value string. Use this for structural "
+            "questions instead of grepping by hand."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "kind": {
-                    "type": "string",
-                    "enum": ["callers", "references", "definitions", "imports"],
-                },
+                "kind": {"type": "string", "enum": ["callers", "references", "definitions", "imports"]},
                 "subject": {"type": "string"},
             },
             "required": ["kind", "subject"],
-        },
-    },
-    {
-        "name": "trellis_publish",
-        "description": (
-            "Publish a reusable artifact under a key. kind=callers (key is "
-            "the subject symbol), filemap (key is a module name), or notes "
-            "(deps = list of module names the notes depend on)."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "key": {"type": "string"},
-                "kind": {"type": "string", "enum": ["callers", "filemap", "notes"]},
-                "value": {"type": "string"},
-                "deps": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["key", "kind", "value"],
         },
     },
 ]
@@ -95,30 +54,18 @@ def run_cli(args):
 
 
 def tool_call(name, arguments):
-    base = ["--repo", os.environ["TRELLIS_REPO"], "--store", os.environ["TRELLIS_STORE"]]
-    if name == "trellis_status":
-        return run_cli(["status"] + base)
-    if name == "trellis_retrieve":
-        return run_cli(["retrieve", *base, "--key", arguments["key"]])
-    if name == "trellis_query":
-        return run_cli(
-            [
-                "query",
-                "--repo",
-                os.environ["TRELLIS_REPO"],
-                "--kind",
-                arguments["kind"],
-                "--subject",
-                arguments["subject"],
-            ]
-        )
-    if name == "trellis_publish":
-        args = ["publish", *base, "--key", arguments["key"], "--kind", arguments["kind"]]
-        args += ["--value", arguments["value"]]
-        for dep in arguments.get("deps", []):
-            args += ["--dep", dep]
-        return run_cli(args)
-    raise RuntimeError(f"unknown tool {name}")
+    if name != "code_query":
+        raise RuntimeError(f"unknown tool {name}")
+    args = [
+        "tool",
+        "--repo", os.environ["TRELLIS_REPO"],
+        "--mode", os.environ.get("TRELLIS_MODE", "baseline"),
+        "--kind", arguments["kind"],
+        "--subject", arguments["subject"],
+    ]
+    if os.environ.get("TRELLIS_MODE", "baseline") == "trellis":
+        args += ["--store", os.environ["TRELLIS_STORE"]]
+    return run_cli(args)
 
 
 def handle(request):
@@ -215,7 +162,7 @@ def selftest():
         responses.append(json.loads(line))
     proc.terminate()
     assert responses[0]["result"]["serverInfo"]["name"] == "trellis-mcp", responses
-    assert len(responses[1]["result"]["tools"]) == 4, responses
+    assert len(responses[1]["result"]["tools"]) == 1, responses
     print("selftest OK: initialize + tools/list round-tripped")
 
 
