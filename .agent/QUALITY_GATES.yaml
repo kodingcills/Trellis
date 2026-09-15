@@ -31,6 +31,17 @@ INVARIANT_TESTS:
 # here before the node can be recorded completed. Define the gate when the
 # node is activated, not after the implementation exists.
 NODE_GATES:
+  M11_AGENT_BENCHMARK_ACCEPTANCE:
+    criteria:
+      - independent variable is capture/validity/reuse ONLY: every rung executes the IDENTICAL semantic-query implementation (callers(foo) runs the same underlying caller query in all conditions); no rung receives better program intelligence (§25 fairness contract)
+      - minimal ReAct tool-loop agent (~500 lines Python) drives the CLI; the agent remains the actor, Trellis remains the runtime beneath it
+      - ladder rungs implemented and run: fresh, exact cache, file-level invalidation, trellis-deterministic (memory/RAG and semantic rungs optional beyond the first three, recorded if skipped)
+      - frozen controls identical across conditions: model configuration, prompt/tool descriptions, task, repository start state, context budget, timeout, max steps
+      - ≥3 paired trials per task pair; execution order randomized/blocked; task success is the primary gate (correctness unchanged across rungs)
+      - metrics measured: task success, wall-clock, model calls, input/output tokens (provider-cached tokens separate), logical tool/repository operations, reuse count, recomputation count, validation overhead, stale reuse (must be 0)
+      - fairness checklist documented per run; results + configuration committed
+      - no benchmark-specific shortcuts in production code (BLOCKER-level contamination if found); M0-M10 tests unchanged and green
+    evidence_required: run log with results + fairness checklist + fresh review record
   M10_BENCHMARK_ACCEPTANCE:
     criteria:
       - Benchmark A runs the FULL M2 mutation catalog (R0-R4, X1-X5) as independent ground truth: per-mutation, per-artifact validity measured against oracle labels; zero false-valid observed on deterministic classes (STRUCTURAL_SET/FACT with complete coverage); stale recall and invalidation precision reported; X5 abstention (UNKNOWN) behavior measured

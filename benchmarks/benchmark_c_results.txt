@@ -1,0 +1,18 @@
+Benchmark C — controlled agent, paired trials (spec §25 C)
+===========================================================
+rungs: fresh / exact-cache / file-invalidation / trellis
+trials per rung per task: 3 (two tasks: R2, R2->R3)
+semantic-query implementation: IDENTICAL across rungs
+frozen controls: context budget 4000 tokens, scripted
+deterministic policy, same repository start state, same tool
+descriptions; provider-cached tokens recorded separately (0 in
+the scripted-model v0.1 harness; real-model rungs land with M12).
+
+recomputation counts (fresh recomputes every trial):
+fresh:             6
+exact-cache:       6
+file-invalidation: 6
+trellis:           6
+
+task success: 100% across all rungs (primary gate)
+stale reuse: 0 across all rungs
