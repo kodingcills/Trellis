@@ -24,7 +24,35 @@ LEDGER = ["publish", "retrieve_valid", "retrieve_stale", "retrieve_unknown", "va
 
 
 def load(path: Path) -> list:
-    return json.loads(path.read_text())
+    rows = json.loads(path.read_text())
+    return decumulate(rows)
+
+
+LEDGER_FIELDS = ["publish", "retrieve_valid", "retrieve_stale",
+                 "retrieve_unknown", "validation_us"]
+TASK_ORDER = {"T1": 0, "T2": 1, "T3": 2, "T4": 3, "T5": 4}
+
+
+def decumulate(rows: list) -> list:
+    """The store ledger is cumulative across a trial's task chain; convert
+    each row's ledger fields to per-task deltas so sums are operation
+    counts, not double-counted totals."""
+    out = []
+    for trial in sorted({r["trial"] for r in rows}):
+        for cond in ("A", "B"):
+            chain = sorted(
+                (r for r in rows if r["trial"] == trial and r["condition"] == cond),
+                key=lambda r: TASK_ORDER.get(r["task"], 99),
+            )
+            prev = {k: 0 for k in LEDGER_FIELDS}
+            for row in chain:
+                fixed = dict(row)
+                for k in LEDGER_FIELDS:
+                    cur = row.get(k, 0)
+                    fixed[k] = cur - prev[k]
+                    prev[k] = cur
+                out.append(fixed)
+    return out
 
 
 def summarize(rows: list) -> dict:
