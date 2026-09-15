@@ -470,6 +470,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "trellis-cli"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "trellis-core",
+ "trellis-engine",
+ "trellis-program",
+ "trellis-source",
+ "trellis-store",
+]
+
+[[package]]
 name = "trellis-core"
 version = "0.1.0"
 dependencies = [

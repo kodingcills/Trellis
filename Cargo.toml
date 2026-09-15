@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/trellis-core", "crates/trellis-source", "crates/trellis-oracle", "crates/trellis-program", "crates/trellis-cas", "crates/trellis-store", "crates/trellis-engine", "crates/trellis-scip"]
+members = ["crates/trellis-core", "crates/trellis-source", "crates/trellis-oracle", "crates/trellis-program", "crates/trellis-cas", "crates/trellis-store", "crates/trellis-engine", "crates/trellis-scip", "crates/trellis-cli"]
 
 [workspace.package]
 version = "0.1.0"

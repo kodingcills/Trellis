@@ -1607,20 +1607,31 @@ impl Store {
         ),
         StoreError,
     > {
-        let (s, u, c, i, k) = self.conn.query_row(
-            "SELECT snapshot, universe_digest, coverage_digest, indexer, completeness
+        let (s, u, c, i, k) = self
+            .conn
+            .query_row(
+                "SELECT snapshot, universe_digest, coverage_digest, indexer, completeness
              FROM completeness_bindings WHERE projection_id = ?1",
-            [projection.to_string()],
-            |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, String>(4)?,
-                ))
-            },
-        )?;
+                [projection.to_string()],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .map_err(|e| match e {
+                // An unbound projection is a normal state (the transition's
+                // §8.1 dirtying rule treats NotFound as "never seeded"), not
+                // a storage failure.
+                rusqlite::Error::QueryReturnedNoRows => {
+                    StoreError::NotFound(format!("completeness binding for {projection}"))
+                }
+                other => StoreError::Sqlite(other),
+            })?;
         let completeness = match k.as_str() {
             "complete" => trellis_core::coverage::Completeness::Complete,
             "unknown" => trellis_core::coverage::Completeness::Unknown,

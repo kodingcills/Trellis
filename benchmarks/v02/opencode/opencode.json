@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "trellis": {
+      "type": "local",
+      "command": ["python3", "/ABSOLUTE/path/to/Trellis/benchmarks/v02/mcp_trellis.py"],
+      "enabled": true
+    }
+  }
+}

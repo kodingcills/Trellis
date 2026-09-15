@@ -1,0 +1,20 @@
+[package]
+name = "trellis-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Thin JSON CLI over the Trellis v0.1 runtime for coding-agent adapters"
+
+[[bin]]
+name = "trellis"
+path = "src/main.rs"
+
+[dependencies]
+trellis-core = { path = "../trellis-core" }
+trellis-source = { path = "../trellis-source" }
+trellis-program = { path = "../trellis-program" }
+trellis-engine = { path = "../trellis-engine" }
+trellis-store = { path = "../trellis-store" }
+serde_json = "1"
