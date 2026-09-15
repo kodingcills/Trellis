@@ -3,18 +3,18 @@
   "updated_at": "2026-09-14",
   "architecture_version": "draft-1.0-frozen",
   "spec_document": "docs/architecture/TRELLIS_V0_1_FROZEN.md",
-  "current_green_commit": "bc36d1a",
-  "current_green_commit_subject": "test(bench): add controlled-agent benchmark C (M11)",
-  "current_green_commit_note": "M11 green checkpoint. Benchmark C: 4 ladder rungs (fresh/exact-cache/file-invalidation/trellis) behind the IDENTICAL semantic query, paired repeated trials (24), task success 100% (primary gate), stale reuse 0, fairness checklist committed. Scripted-model limitation and cargo-test deviation recorded honestly (real model via M12 external harness). GLOBAL_GREEN re-verified (194 tests, clippy -D warnings, fmt).",
+  "current_green_commit": "2425ef2",
+  "current_green_commit_subject": "test(oss): add pinned OSS external validation (M12)",
+  "current_green_commit_note": "M12 green checkpoint. Pinned OSS fixture (pip 26.2.1, content-digest lock, 156 real Python files, NEVER an oracle): 156/156 indexed, reconcile smoke exact, honesty floor demonstrated (semantic kinds UNKNOWN over syntax-backend certificates), coverage report committed. GLOBAL_GREEN re-verified (195 tests, clippy -D warnings, fmt).",
   "current_green_commit_evidence": {
     "ran_at": "2026-09-14",
     "GLOBAL_GREEN": {
-      "cargo_test": "pass \u2014 194 passed / 0 failed (6 cas + 43 core + 50 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store)",
+      "cargo_test": "pass \u2014 195 passed / 0 failed (6 cas + 43 core + 51 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy_D_warnings": "pass \u2014 zero warnings",
       "fmt_check": "pass"
     },
     "node_gates": {
-      "M11_AGENT_BENCHMARK_ACCEPTANCE": "pass \u2014 fairness contract structurally enforced (identical query across rungs); paired trials \u22653; task success 100%; stale reuse 0; metrics + fairness checklist committed; no production-code changes. Run log .agent/runs/M11/2026-09-14-agent-benchmark.md"
+      "M12_OSS_ACCEPTANCE": "pass \u2014 pinned fixture at recorded lock; never an oracle; index/reconcile/coverage at scale with committed envelope; absence-claim semantics match M7 (UNKNOWN over syntax-backend certificates); deviations recorded. Run log .agent/runs/M12/2026-09-14-oss-validation.md"
     }
   },
   "completed_nodes": [
@@ -29,32 +29,33 @@
     "M8",
     "M9",
     "M10",
-    "M11"
+    "M11",
+    "M12"
   ],
   "active_nodes": [
-    "M12"
+    "RELEASE_V0_1"
   ],
   "blocked_nodes": [],
   "next_candidates": [
-    "M12"
+    "RELEASE_V0_1"
   ],
-  "next_candidates_note": "M12 (pinned OSS external validation) now unblocked (deps M3+M10 complete). Pinned real OSS Python repo as a realism fixture (NEVER an oracle): indexing coverage report, query smoke tests, reconciliation behavior at scale, documented coverage gaps fed back as evidence.",
+  "next_candidates_note": "All 12 milestone nodes are complete. RELEASE_V0_1: DoD audit per spec \u00a732, \u00a728 items 1-9 in one reproducible run, final fresh architecture/correctness/benchmark audit (must not be an implementation session), docs audit, then V0_1_COMPLETE.",
   "known_architecture_conflicts": [],
   "last_review": {
-    "node": "M11",
-    "kind": "1 fresh-context adversarial review cycle: GREEN / COMMIT_ALLOWED (2 OPTIONAL findings, neither blocking)",
+    "node": "M12",
+    "kind": "1 fresh-context adversarial review cycle: GREEN / COMMIT_ALLOWED (2 OPTIONAL \u2192 BACKLOG)",
     "independent_adversarial_review": true,
-    "record": ".agent/reviews/2026-09-14-M11-cycle1.md",
+    "record": ".agent/reviews/2026-09-14-M12-cycle1.md",
     "open_findings": [],
-    "dispositioned": "2 OPTIONAL \u2192 BACKLOG (stale-reuse metric supplementary to the primary task-success gate; exact-cache/file-invalidation rungs identical at fixture scale).",
-    "deviation_note": "Scripted-model harness + cargo-test form recorded in DECISIONS; real-model standalone harness lands with M12."
+    "dispositioned": "2 OPTIONAL \u2192 BACKLOG (PIN digest mechanical verification; benchmark rerun variance).",
+    "deviation_note": "Vendored content-digest pin; external harness not required; evolution replay skipped \u2014 all recorded in run log + DECISIONS."
   },
   "last_gate_result": {
     "ran_at": "2026-09-14",
-    "gate": "GLOBAL_GREEN + M11_AGENT_BENCHMARK_ACCEPTANCE",
+    "gate": "GLOBAL_GREEN + M12_OSS_ACCEPTANCE",
     "result": "pass",
     "details": {
-      "tests": "194 passed / 0 failed (6 cas + 43 core + 50 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store)",
+      "tests": "195 passed / 0 failed (6 cas + 43 core + 51 engine + 8 scip + 14 oracle + 22 program + 20 source + 27 store)",
       "clippy": "clean at -D warnings",
       "fmt": "clean"
     }

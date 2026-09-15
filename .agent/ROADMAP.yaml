@@ -360,7 +360,7 @@ nodes:
   - id: M12
     objective: Pinned OSS external validation — lightweight realism/integration fixture, never an oracle (spec §26, §25 D).
     dependencies: [M3, M10]
-    status: active
+    status: completed
     deliverables:
       - pinned (locked-commit) real OSS Python repo as fixture
       - indexing coverage report, query smoke tests, reconciliation behavior at scale
@@ -378,12 +378,15 @@ nodes:
     evidence:
       - coverage + smoke results committed
       - DECISIONS entry pinning the repo + commit
+      - commit 2425ef2 "test(oss): add pinned OSS external validation (M12)"; pip 26.2.1 vendored snapshot (156 files, content-digest lock), coverage report committed
+      - M12_OSS_ACCEPTANCE satisfied: all 6 criteria PASS; run log .agent/runs/M12/2026-09-14-oss-validation.md
+      - review: 1 fresh-context cycle GREEN/COMMIT_ALLOWED — .agent/reviews/2026-09-14-M12-cycle1.md; 195 tests green, clippy clean, fmt clean
 
   # ─────────────────────────────────────────────────────────────────────
   - id: RELEASE_V0_1
     objective: v0.1 terminal condition — frozen Definition of Done satisfied (spec §32, §28).
     dependencies: [M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12]
-    status: pending
+    status: active
     deliverables:
       - all node evidence assembled and re-verified from a clean checkout
       - documentation matches implementation (AGENTS.md, README, spec deltas only via DECISIONS)
