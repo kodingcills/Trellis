@@ -331,7 +331,7 @@ nodes:
   - id: M11
     objective: Controlled-agent benchmark C — minimal agent loop, same-logical-tool-API fairness, baseline ladder (spec §25 C).
     dependencies: [M10]
-    status: active
+    status: completed
     deliverables:
       - minimal ReAct tool-loop agent (~500 lines Python) driving CLI/SDK
       - two conditions (plain vs trellis) behind the SAME logical tool API; identical semantic-query implementation (§25 fairness contract)
@@ -351,12 +351,16 @@ nodes:
     evidence:
       - results + fairness checklist committed
       - model/provider configuration recorded (§10 ProducerInfo provenance)
+      - commit bc36d1a "test(bench): add controlled-agent benchmark C (M11)"; 4 ladder rungs, 24 paired trials, task success 100%, stale reuse 0
+      - M11_AGENT_BENCHMARK_ACCEPTANCE satisfied: fairness contract structurally enforced; results + fairness checklist committed under benchmarks/benchmark_c_results.txt; run log .agent/runs/M11/2026-09-14-agent-benchmark.md
+      - review: 1 fresh-context cycle GREEN/COMMIT_ALLOWED — .agent/reviews/2026-09-14-M11-cycle1.md; 194 tests green, clippy clean, fmt clean
+      - deviations recorded: scripted-model harness (real model via M12); cargo-test form supersedes standalone Python loop
 
   # ─────────────────────────────────────────────────────────────────────
   - id: M12
     objective: Pinned OSS external validation — lightweight realism/integration fixture, never an oracle (spec §26, §25 D).
     dependencies: [M3, M10]
-    status: pending
+    status: active
     deliverables:
       - pinned (locked-commit) real OSS Python repo as fixture
       - indexing coverage report, query smoke tests, reconciliation behavior at scale
