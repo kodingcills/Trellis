@@ -1,21 +1,21 @@
 Benchmark B — systems economics (synthetic fixture)
 ====================================================
 per-operation latencies (microseconds):
-  source reconciliation                        p50=  1041us  p95=  1878us  p99=  1878us  n=20
-  candidate discovery                          p50=     0us  p95=     3us  p99=     3us  n=20
-  projection reevaluation (validate)           p50=   872us  p95=  1609us  p99=  1609us  n=20
-  full fixture reindex (recompute)             p50=  9288us  p95= 10333us  p99= 10333us  n=10
-  SCIP freeze (ingest + identity)              p50=     9us  p95=    12us  p99=    12us  n=10
-  CAS put (payload)                            p50= 10807us  p95= 50879us  p99= 50879us  n=20
-  attestation append                           p50=   478us  p95=   735us  p99=   735us  n=10
+  source reconciliation                        p50=   903us  p95=   926us  p99=   926us  n=20
+  candidate discovery                          p50=     0us  p95=     4us  p99=     4us  n=20
+  projection reevaluation (validate)           p50=   765us  p95=   793us  p99=   793us  n=20
+  full fixture reindex (recompute)             p50=  8404us  p95=  8874us  p99=  8874us  n=10
+  SCIP freeze (ingest + identity)              p50=    11us  p95=    18us  p99=    18us  n=10
+  CAS put (payload)                            p50=  4049us  p95=  5136us  p99=  5136us  n=20
+  attestation append                           p50=    98us  p95=   128us  p99=   128us  n=10
 
 scaling (affected-frontier size):
-frontier= 1 (reconcile+discover)             p50=  1702us  p95=  2781us  p99=  2781us  n=10
-    frontier= 8 (reconcile+discover)             p50=  1206us  p95=  1691us  p99=  1691us  n=10
-    frontier=32 (reconcile+discover)             p50=  1582us  p95=  1670us  p99=  1670us  n=10
+frontier= 1 (reconcile+discover)             p50=  1057us  p95=  1086us  p99=  1086us  n=10
+    frontier= 8 (reconcile+discover)             p50=  1174us  p95=  1188us  p99=  1188us  n=10
+    frontier=32 (reconcile+discover)             p50=  1575us  p95=  1625us  p99=  1625us  n=10
 
 economic premise (kill-criterion measurement, §28):
-  C_validate (p95 discovery+reevaluation) = 1612us
-  C_recompute (p95 full reindex)          = 10333us
-  ratio C_recompute / C_validate          = 6.4x
+  C_validate (p95 discovery+reevaluation) = 797us
+  C_recompute (p95 full reindex)          = 8874us
+  ratio C_recompute / C_validate          = 11.1x
   premise C_validate << C_recompute: HOLDS

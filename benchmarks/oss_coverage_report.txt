@@ -5,8 +5,8 @@ pin: content digest 9bf8e4995e1e84b65fcd1300a301a511e5e3279c2da6dc048cce1bc96e9c
 files indexed: 156 (parsed 156, parse-failed 0 — explicit evidence, never silent)
 
 resource envelope:
-index (full vendored tree): 308880us
-reconcile (add/modify/delete smoke): 21170us
+index (full vendored tree): 354500us
+reconcile (add/modify/delete smoke): 21760us
 
 coverage report:
 covered subset (_internal/utils/*): 26 files
