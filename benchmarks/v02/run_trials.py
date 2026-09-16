@@ -7,11 +7,12 @@ variable (artifact persistence across a related-task chain):
   B (trellis):  store persists across the task chain -> validated reuse.
 
 Same model, same agent prompt, same MCP tools, same CLI, same timeout.
-`opencode run --format json` streams events; the harness parses tokens,
-model calls, and tool operations, then runs deterministic per-task
+The agent is Claude Code itself, headless (`claude -p --output-format
+stream-json`); the harness parses tokens, model calls, and tool
+operations from the event stream, then runs deterministic per-task
 verifiers (structural checks + unittest).
 
-Usage: python3 benchmarks/v02/run_trials.py --trials 5 [--model M] [--smoke]
+Usage: python3 benchmarks/v02/run_trials.py [--model M] [--smoke]
 """
 
 from __future__ import annotations
@@ -35,20 +36,27 @@ from provider_health import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-OPC = Path.home() / ".opencode" / "bin" / "opencode"
+CLAUDE_BIN = "claude"
 FIXTURE = ROOT / "fixtures" / "python_auth" / "base"
 RESULTS = ROOT / "benchmarks" / "v02" / "results"
-DEFAULT_MODEL = "cheaperinference/gpt-5.6-luna"
+DEFAULT_MODEL = "claude-sonnet-5"
 TASK_TIMEOUT_S = 900
 WORKDIR = Path("/tmp/trellis-v02-trials")
+
+# Agent-facing tool surface, byte-identical across A/B (Sec 12). Fixed
+# across both conditions so tool availability is never the independent
+# variable — only Trellis's store persistence is.
+ALLOWED_TOOLS = "Bash,Edit,Write,Read,Grep,Glob,ToolSearch,mcp__trellis__code_query"
 
 # Experiment 4 — stable-provider transparent reuse, pair-scoped health.
 # Frozen per REPORT.md gate decision after Experiment 3 (mid-run provider
 # degradation slipped past a single upfront preflight). Same tasks,
-# verifiers, tool surface, and timeout as Experiments 1/3 — only the
-# health-validity instrumentation changed. Do not edit task/verifier/
-# metric definitions inside this experiment id; cut a new id instead.
-EXPERIMENT_ID = "exp4-stable-provider"
+# verifiers, and timeout as Experiments 1/3. Agent harness switched from
+# OpenCode to Claude Code headless before any real pair ran under this
+# id (no data existed yet — not a mid-experiment methodology change).
+# Do not edit task/verifier/metric definitions inside this experiment
+# id; cut a new one instead.
+EXPERIMENT_ID = "exp4-claude-code"
 TARGET_VALID_PAIRS = 5
 MAX_PAIR_ATTEMPTS = 8
 
@@ -163,23 +171,26 @@ def suite_ok(repo: Path) -> bool:
 # Trial machinery
 # ─────────────────────────────────────────────────────────────────────
 
-def wire_workspace(repo: Path) -> None:
-    agent_dir = repo / ".opencode" / "agent"
-    agent_dir.mkdir(parents=True, exist_ok=True)
+def write_mcp_config(repo: Path, store: Path, mode: str) -> Path:
+    """Bake per-condition env directly into the MCP config rather than
+    relying on subprocess env inheritance into the MCP child process."""
     config = {
-        "mcp": {
+        "mcpServers": {
             "trellis": {
-                "type": "local",
-                "command": ["python3", str(ROOT / "benchmarks/v02/mcp_trellis.py")],
-                "enabled": True,
+                "command": "python3",
+                "args": [str(ROOT / "benchmarks/v02/mcp_trellis.py")],
+                "env": {
+                    "TRELLIS_BIN": str(ROOT / "target/debug/trellis"),
+                    "TRELLIS_REPO": str(repo),
+                    "TRELLIS_STORE": str(store),
+                    "TRELLIS_MODE": mode,
+                },
             }
         }
     }
-    (repo / ".opencode" / "opencode.json").write_text(json.dumps(config, indent=2))
-    shutil.copy(
-        ROOT / "benchmarks/v02/opencode/agent/trellis-worker.md",
-        agent_dir / "trellis-worker.md",
-    )
+    path = repo.parent / "mcp.json"
+    path.write_text(json.dumps(config, indent=2))
+    return path
 
 
 def fresh_condition_workspace(trial: int, condition: str) -> tuple[Path, Path]:
@@ -191,7 +202,6 @@ def fresh_condition_workspace(trial: int, condition: str) -> tuple[Path, Path]:
     for pycache in repo.rglob("__pycache__"):
         shutil.rmtree(pycache)
     store = base / "store.db"
-    wire_workspace(repo)
     env = cli_env(repo, store)
     run_cli(["init", "--repo", str(repo), "--store", str(store)], env)
     return repo, store
@@ -201,10 +211,6 @@ def cli_env(repo: Path, store: Path) -> dict:
     import os
 
     env = dict(os.environ)
-    # opencode resolves its project from PWD; a stale inherited PWD makes
-    # the headless run instantiate the wrong project and fail.
-    env.pop("PWD", None)
-    env.pop("OLDPWD", None)
     env["TRELLIS_BIN"] = str(ROOT / "target/debug/trellis")
     env["TRELLIS_REPO"] = str(repo)
     env["TRELLIS_STORE"] = str(store)
@@ -228,24 +234,31 @@ def store_path(repo: Path) -> Path:
     return repo.parent / "store.db"
 
 
-def run_agent(task_spec: str, repo: Path, model: str, condition: str) -> tuple[dict, float]:
+def run_agent(task_spec: str, repo: Path, model: str, condition: str) -> dict:
+    mode = "trellis" if condition == "B" else "baseline"
+    mcp_config = write_mcp_config(repo, store_path(repo), mode)
     started = time.time()
     ledger = repo / ".trellis-events.jsonl"
     ledger_before = ledger.read_text().splitlines() if ledger.exists() else []
     try:
         proc = subprocess.run(
             [
-                str(OPC), "run", task_spec,
-                "--agent", "trellis-worker",
-                "-m", model,
-                "--auto",
-                "--format", "json",
+                CLAUDE_BIN, "-p", task_spec,
+                "--model", model,
+                "--output-format", "stream-json", "--verbose",
+                # Excludes user/project CLAUDE.md, hooks, skills, and any
+                # other MCP servers on this machine — the benchmarked
+                # agent must run with nothing but the fixed tool surface
+                # below, not this operator's personal configuration.
+                "--setting-sources", "",
+                "--mcp-config", str(mcp_config), "--strict-mcp-config",
+                "--allowedTools", ALLOWED_TOOLS,
+                "--permission-prompts", "none",
             ],
             cwd=repo,
             capture_output=True,
             text=True,
             timeout=TASK_TIMEOUT_S,
-            env=cli_env(repo, store_path(repo)) | {"TRELLIS_MODE": "trellis" if condition == "B" else "baseline"},
         )
         stdout, failed, timed_out = proc.stdout, proc.returncode != 0, False
     except subprocess.TimeoutExpired as exc:
@@ -295,6 +308,14 @@ def parse_tool_ledger(lines: list) -> dict:
 
 
 def parse_events(stdout: str) -> dict:
+    """Parse Claude Code's `--output-format stream-json` event stream.
+    Tool-use blocks are deduped by their block id: the same growing
+    assistant message is re-emitted across multiple lines as content
+    streams in, so a naive per-line count double/triple-counts. Token
+    and turn totals are reconstructed the same way (dedup by message
+    id) rather than read from the final `result` event, so a run that
+    hits the task timeout before that event exists still yields real
+    partial metrics instead of all-zero."""
     metrics = {
         "model_calls": 0,
         "input_tokens": 0,
@@ -308,7 +329,10 @@ def parse_events(stdout: str) -> dict:
         "edits": 0,
         "code_query_calls": 0,
         "trellis_agent_ceremony_calls": 0,
+        "tool_search_calls": 0,
     }
+    seen_messages: set = set()
+    seen_tools: set = set()
     for line in stdout.splitlines():
         line = line.strip()
         if not line:
@@ -317,31 +341,40 @@ def parse_events(stdout: str) -> dict:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
-        etype = event.get("type")
-        part = event.get("part", {})
-        if etype == "step_start":
+        if event.get("type") != "assistant":
+            continue
+        message = event.get("message", {})
+        msg_id = message.get("id")
+        if msg_id and msg_id not in seen_messages:
+            seen_messages.add(msg_id)
             metrics["model_calls"] += 1
-        elif etype == "step_finish":
-            tokens = part.get("tokens", {})
-            cache = tokens.get("cache", {})
-            metrics["input_tokens"] += tokens.get("input", 0)
-            metrics["output_tokens"] += tokens.get("output", 0)
-            metrics["cached_read_tokens"] += cache.get("read", 0)
-            metrics["cached_write_tokens"] += cache.get("write", 0)
-        elif etype == "tool_use":
-            tool = part.get("tool", "")
+            usage = message.get("usage", {})
+            metrics["input_tokens"] += usage.get("input_tokens", 0)
+            metrics["output_tokens"] += usage.get("output_tokens", 0)
+            metrics["cached_read_tokens"] += usage.get("cache_read_input_tokens", 0)
+            metrics["cached_write_tokens"] += usage.get("cache_creation_input_tokens", 0)
+        for block in message.get("content", []):
+            if block.get("type") != "tool_use":
+                continue
+            tool_id = block.get("id")
+            if not tool_id or tool_id in seen_tools:
+                continue
+            seen_tools.add(tool_id)
+            name = block.get("name", "")
             metrics["tool_ops"] += 1
-            if tool == "read":
+            if name == "Read":
                 metrics["file_reads"] += 1
-            elif tool in ("grep", "glob"):
+            elif name in ("Grep", "Glob"):
                 metrics["repo_searches"] += 1
-            elif tool == "bash":
+            elif name == "Bash":
                 metrics["shell_cmds"] += 1
-            elif tool in ("edit", "write"):
+            elif name in ("Edit", "Write"):
                 metrics["edits"] += 1
-            elif tool == "trellis_code_query":
+            elif name == "ToolSearch":
+                metrics["tool_search_calls"] += 1
+            elif name == "mcp__trellis__code_query":
                 metrics["code_query_calls"] += 1
-            if tool.startswith("trellis_") and tool != "trellis_code_query":
+            elif name.startswith("mcp__trellis__"):
                 metrics["trellis_agent_ceremony_calls"] += 1
     return metrics
 
@@ -420,6 +453,9 @@ def condition_summary(rows: list) -> dict:
         "false_valid_reuse": None,
         "trellis_runtime_time_s": round(total("tool_validation_us") / 1e6, 3),
         "ceremony_calls": total("trellis_agent_ceremony_calls"),
+        # Platform overhead (Claude Code's deferred-tool discovery),
+        # identical mechanism in both conditions — not Trellis ceremony.
+        "tool_search_calls": total("tool_search_calls"),
     }
 
 

@@ -284,10 +284,32 @@ Protocol commit: see git history at the commit introducing this
 section (`bench(v02): freeze pair-scoped provider health protocol`).
 Tests: `test_provider_health.py`, `test_run_trials.py`, `test_analyze.py`.
 
+**Harness correction (before any real pair ran):** the frozen protocol
+above assumed OpenCode as the agent harness, matching Experiments 1/3.
+OpenCode is not the intended agent for this evaluation — the harness
+was rewritten to run the agent-under-test as Claude Code headless
+(`claude -p --output-format stream-json`) instead. No Experiment 4 pair
+had been recorded under the OpenCode version, so this is a pre-launch
+correction, not a mid-experiment methodology change (Sec 11). Model:
+`claude-sonnet-5`. Isolation: `--setting-sources ""` and
+`--strict-mcp-config` exclude this operator's personal CLAUDE.md,
+hooks, skills, and unrelated MCP connectors from the benchmarked agent;
+`--permission-prompts none` with a fixed `--allowedTools` list
+(`Bash,Edit,Write,Read,Grep,Glob,ToolSearch,mcp__trellis__code_query`,
+identical across conditions) makes the run headless without
+`bypassPermissions`. `ToolSearch` is required because Claude Code
+defers MCP tool schemas by default; this is a fixed platform overhead
+identical in both conditions, tracked separately
+(`tool_search_calls`) and not counted as Trellis ceremony. Verified
+live end-to-end with `--smoke` (T1+T2, both conditions, Sonnet 5):
+4/4 task successes, 5 automatic captures, 0 ceremony calls, 0 reuse
+(expected — first-task-per-module, nothing to reuse yet). Raw:
+`results/raw-smoke.json`, `results/provider_health-smoke.json`.
+
 ### Results
 
 *(pending — filled in after the accrual run completes or exhausts the
-8-attempt cap; see `results/pairs-exp4-stable-provider.json`)*
+8-attempt cap; see `results/pairs-exp4-claude-code.json`)*
 
 ## Limitations
 
@@ -330,8 +352,8 @@ Tests: `test_provider_health.py`, `test_run_trials.py`, `test_analyze.py`.
 - `benchmarks/v02/analyze.py` — aggregation (ledger de-cumulation added
   post-review).
 - `benchmarks/v02/results/raw-*.json` — raw rows for Experiments 1-3.
-- `benchmarks/v02/results/pairs-exp4-stable-provider.json` — Experiment
-  4 PairAttempt records (immutable, checkpointed per attempt).
+- `benchmarks/v02/results/pairs-exp4-claude-code.json` — Experiment 4
+  PairAttempt records (immutable, checkpointed per attempt).
 - `benchmarks/v02/results/provider_health-*.json` — preflight probe
   reports (why a run proceeded or aborted); `-pair<N>-pre/post.json`
   are Experiment 4's pair-scoped sentinels.

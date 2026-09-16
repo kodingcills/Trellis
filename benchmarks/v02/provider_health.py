@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Provider-health preflight for v0.2 real-agent benchmarks.
 
-Issues a small number of trivial fixed probes against the same
-model/provider the benchmark will use, then applies the predeclared
-gate frozen in ABLATION.md:
+Issues a small number of trivial fixed probes against Claude Code
+headless (`claude -p`) with the same model the benchmark will use, then
+applies the predeclared gate frozen in ABLATION.md:
 
     trivial-prompt p95 < 15s AND zero probe failures (N=6)
 
@@ -26,7 +26,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-OPC = Path.home() / ".opencode" / "bin" / "opencode"
+CLAUDE_BIN = "claude"
 RESULTS = Path(__file__).resolve().parent / "results"
 
 PROBE_PROMPT = "Reply with exactly the word OK and nothing else."
@@ -46,14 +46,18 @@ GATE_RULE = f"trivial-prompt p95 < {P95_LIMIT_S}s and 0 failures (N={PROBE_COUNT
 PAIR_PROBE_COUNT = 3
 
 
-def run_probe(model: str, opc: Path = OPC, cwd: Path | None = None) -> dict:
-    """One trivial fixed probe. Returns {ok, latency_s, error}."""
+def run_probe(model: str, claude_bin: str = CLAUDE_BIN, cwd: Path | None = None) -> dict:
+    """One trivial fixed probe against Claude Code headless (`claude -p`).
+    Repository- and Trellis-independent by design (Sec 8). Returns
+    {ok, latency_s, error}."""
     if cwd is None:
         cwd = Path(tempfile.mkdtemp(prefix="trellis-probe-"))
     started = time.time()
     try:
         proc = subprocess.run(
-            [str(opc), "run", PROBE_PROMPT, "-m", model, "--format", "json"],
+            [claude_bin, "-p", PROBE_PROMPT, "--model", model,
+             "--output-format", "json", "--setting-sources", "",
+             "--permission-prompts", "none"],
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_S,
@@ -66,8 +70,12 @@ def run_probe(model: str, opc: Path = OPC, cwd: Path | None = None) -> dict:
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout).strip()[-200:]
         return {"ok": False, "latency_s": latency, "error": f"exit {proc.returncode}: {tail}"}
-    if "OK" not in proc.stdout:
-        return {"ok": False, "latency_s": latency, "error": "response missing OK"}
+    try:
+        result = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {"ok": False, "latency_s": latency, "error": "response not valid JSON"}
+    if result.get("is_error") or "OK" not in result.get("result", ""):
+        return {"ok": False, "latency_s": latency, "error": f"unexpected result: {result.get('result', '')[:100]}"}
     return {"ok": True, "latency_s": latency, "error": None}
 
 
@@ -150,7 +158,7 @@ def main() -> int:
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default="cheaperinference/gpt-5.6-luna")
+    parser.add_argument("--model", default="claude-sonnet-5")
     parser.add_argument("--suffix", default="adhoc",
                         help="report filename suffix (e.g. n5, smoke)")
     args = parser.parse_args()

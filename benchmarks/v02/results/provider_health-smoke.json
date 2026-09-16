@@ -1,44 +1,64 @@
 {
-  "model": "cheaperinference/gpt-5.6-luna",
-  "timestamp_utc": "2026-09-16T02:42:53.088733+00:00",
-  "probe_count": 6,
+  "model": "claude-sonnet-5",
+  "timestamp_utc": "2026-09-16T22:08:27.237146+00:00",
+  "probe_count": 10,
   "probes": [
     {
       "ok": true,
-      "latency_s": 5.78,
+      "latency_s": 4.94,
       "error": null
     },
     {
       "ok": true,
-      "latency_s": 6.76,
+      "latency_s": 4.57,
       "error": null
     },
     {
       "ok": true,
-      "latency_s": 4.93,
+      "latency_s": 4.8,
       "error": null
     },
     {
       "ok": true,
-      "latency_s": 10.1,
+      "latency_s": 3.56,
       "error": null
     },
     {
       "ok": true,
-      "latency_s": 4.91,
+      "latency_s": 3.55,
       "error": null
     },
     {
       "ok": true,
-      "latency_s": 4.86,
+      "latency_s": 4.59,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 4.32,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 4.89,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 3.39,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 2.75,
       "error": null
     }
   ],
-  "p50_s": 4.93,
-  "p95_s": 10.1,
-  "max_s": 10.1,
+  "p50_s": 4.32,
+  "p95_s": 4.94,
+  "max_s": 4.94,
   "failures": 0,
   "failure_details": [],
   "gate": "pass",
-  "gate_rule": "trivial-prompt p95 < 15.0s and 0 failures (N=6)"
+  "gate_rule": "trivial-prompt p95 < 15.0s and 0 failures (N=10)"
 }
