@@ -17,8 +17,9 @@ RESULTS = Path(__file__).resolve().parent / "results"
 METRICS = [
     "success", "wall_clock_s", "model_calls", "input_tokens", "output_tokens",
     "cached_read_tokens", "tool_ops", "file_reads", "repo_searches",
-    "shell_cmds", "edits", "trellis_status", "trellis_retrieve",
-    "trellis_query", "trellis_publish",
+    "shell_cmds", "edits", "code_query_calls", "trellis_agent_ceremony_calls",
+    "avoided_underlying_computations", "captured_now", "tool_validation_us",
+    "trellis_status", "trellis_retrieve", "trellis_query", "trellis_publish",
 ]
 LEDGER = ["publish", "retrieve_valid", "retrieve_stale", "retrieve_unknown", "validation_us"]
 
@@ -78,7 +79,11 @@ def print_comparison(title: str, rows: list) -> None:
     print(f"{'metric':24} {'A (baseline)':>18} {'B (trellis)':>18}")
     for key in ["success_rate", "wall_clock_s", "model_calls", "input_tokens",
                 "output_tokens", "cached_read_tokens", "tool_ops", "file_reads",
-                "repo_searches", "shell_cmds", "trellis_status", "trellis_retrieve",
+                "repo_searches", "shell_cmds", "code_query_calls",
+                "trellis_agent_ceremony_calls",
+                "avoided_underlying_computations", "captured_now",
+                "tool_validation_us",
+                "trellis_status", "trellis_retrieve",
                 "trellis_query", "trellis_publish", "publish", "retrieve_valid",
                 "retrieve_stale", "retrieve_unknown", "validation_us"]:
         if key == "success_rate":

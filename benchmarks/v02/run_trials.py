@@ -20,8 +20,12 @@ import argparse
 import json
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from provider_health import evaluate_gate, run_probes, write_report
 
 ROOT = Path(__file__).resolve().parents[2]
 OPC = Path.home() / ".opencode" / "bin" / "opencode"
@@ -371,17 +375,30 @@ def main() -> None:
         raise SystemExit("build the CLI first: cargo build -p trellis-cli")
     WORKDIR.mkdir(parents=True, exist_ok=True)
     RESULTS.mkdir(parents=True, exist_ok=True)
+    suffix = "smoke" if args.smoke else f"n{args.trials}"
 
+    # Predeclared provider-health gate (ABLATION.md): abort cleanly
+    # before spending any benchmark runs on a degraded provider.
+    # Aborted runs are not Trellis trials.
+    health = evaluate_gate(run_probes(args.model))
+    health_path = RESULTS / f"provider_health-{suffix}.json"
+    write_report(health, args.model, health_path)
+    print(f"provider health: p50={health['p50_s']}s p95={health['p95_s']}s "
+          f"failures={health['failures']}/{health['probe_count']} "
+          f"gate={health['gate'].upper()} -> {health_path}")
+    if health["gate"] != "pass":
+        for err in health["failure_details"]:
+            print(f"  failure: {err}")
+        print("ABORTING benchmark: provider health gate failed (no trials started)")
+        sys.exit(2)
+
+    out = RESULTS / f"raw-{suffix}.json"
     all_rows: list = []
     for trial in range(1, args.trials + 1):
         print(f"=== trial {trial} (order {'A,B' if trial % 2 == 0 else 'B,A'}) ===")
         all_rows.extend(run_trial(trial, args.model))
-
-    suffix = "smoke" if args.smoke else f"n{args.trials}"
-    out = RESULTS / f"raw-{suffix}.json"
-    out.write_text(json.dumps(all_rows, indent=2))
+        out.write_text(json.dumps(all_rows, indent=2))
     print(f"raw rows -> {out}")
-
 
 if __name__ == "__main__":
     main()
