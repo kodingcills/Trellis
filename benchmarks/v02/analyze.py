@@ -9,10 +9,20 @@ means/counts: n is small and the honest picture is the raw rows.
 from __future__ import annotations
 
 import json
+import statistics
 import sys
 from pathlib import Path
 
 RESULTS = Path(__file__).resolve().parent / "results"
+
+# Experiment 4 pair-level metrics (Sec 15): report every paired diff,
+# not just aggregates. Health-invalid pairs are excluded from this
+# primary comparison but never dropped from the raw file.
+PAIR_METRICS = [
+    "wall_time_s", "model_calls", "input_tokens", "output_tokens",
+    "logical_tool_calls", "underlying_computations", "avoided_computations",
+    "success_count", "timeout_count", "ceremony_calls",
+]
 
 METRICS = [
     "success", "wall_clock_s", "model_calls", "input_tokens", "output_tokens",
@@ -121,9 +131,78 @@ def paired_delta(rows: list, metric: str) -> None:
         print(f"trial {trial}: A={total(a):>10} B={total(b):>10} delta={total(b) - total(a):>+10}")
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Experiment 4 — pair-scoped (pairs-*.json) analysis
+# ─────────────────────────────────────────────────────────────────────
+
+def paired_task_discordance(valid_attempts: list) -> dict:
+    """Per-task success discordance across health-valid pairs (Sec 15)."""
+    counts = {"both_pass": 0, "both_fail": 0, "a_pass_b_fail": 0, "a_fail_b_pass": 0}
+    for attempt in valid_attempts:
+        a_rows = {r["task"]: r["success"] for r in attempt["condition_a"]["rows"]}
+        b_rows = {r["task"]: r["success"] for r in attempt["condition_b"]["rows"]}
+        for task in a_rows:
+            a_ok, b_ok = a_rows[task], b_rows.get(task, False)
+            if a_ok and b_ok:
+                counts["both_pass"] += 1
+            elif not a_ok and not b_ok:
+                counts["both_fail"] += 1
+            elif a_ok and not b_ok:
+                counts["a_pass_b_fail"] += 1
+            else:
+                counts["a_fail_b_pass"] += 1
+    return counts
+
+
+def split_valid(attempts: list) -> tuple[list, list]:
+    return [a for a in attempts if a["health_valid"]], [a for a in attempts if not a["health_valid"]]
+
+
+def pair_metric_diffs(valid_attempts: list, metric: str) -> list:
+    """B-A per health-valid pair. Callers must pre-filter with split_valid —
+    this never inspects health_valid itself, so an invalid pair silently
+    included by a caller bug would not be caught here."""
+    return [a["condition_b"]["summary"][metric] - a["condition_a"]["summary"][metric]
+            for a in valid_attempts]
+
+
+def analyze_pairs(path: Path) -> None:
+    attempts = json.loads(path.read_text())
+    valid, invalid = split_valid(attempts)
+    print(f"\n=== {path.name}: {len(attempts)} pair attempts "
+          f"({len(valid)} health-valid, {len(invalid)} excluded) ===")
+    for a in invalid:
+        print(f"  EXCLUDED attempt {a['attempt_id']}: {a['health_invalid_reason']}")
+    if not valid:
+        print("  no health-valid pairs — nothing to aggregate")
+        return
+
+    print(f"\n{'metric':24}{'diffs (B-A per pair)':>40}{'median':>10}{'mean':>10}")
+    for metric in PAIR_METRICS:
+        diffs = pair_metric_diffs(valid, metric)
+        median = statistics.median(diffs)
+        mean = round(statistics.mean(diffs), 2)
+        print(f"{metric:24}{str(diffs):>40}{median:>10}{mean:>10}")
+
+    discordance = paired_task_discordance(valid)
+    print(f"\n=== per-task correctness discordance ({len(valid)} valid pairs) ===")
+    for key, count in discordance.items():
+        print(f"  {key}: {count}")
+
+    ceremony_total = sum(a["condition_b"]["summary"]["ceremony_calls"] for a in valid)
+    avoided_total = sum(a["condition_b"]["summary"]["avoided_computations"] for a in valid)
+    print(f"\nsafety gates: ceremony_calls={ceremony_total} (must be 0), "
+          f"avoided_computations={avoided_total} (must be >0 to show mechanism use)")
+
+
 def main() -> None:
-    paths = sys.argv[1:] or sorted(str(p) for p in RESULTS.glob("raw-*.json"))
+    paths = sys.argv[1:] or sorted(
+        str(p) for p in list(RESULTS.glob("raw-*.json")) + list(RESULTS.glob("pairs-*.json"))
+    )
     for path in paths:
+        if Path(path).name.startswith("pairs-"):
+            analyze_pairs(Path(path))
+            continue
         rows = load(Path(path))
         name = Path(path).name
         print_comparison(f"{name}: {len(rows)} task-runs", rows)

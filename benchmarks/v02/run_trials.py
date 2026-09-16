@@ -25,7 +25,14 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from provider_health import evaluate_gate, run_probes, write_report
+from provider_health import (
+    classify_pair_health,
+    evaluate_gate,
+    run_pair_sentinel,
+    run_probes,
+    write_pair_report,
+    write_report,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 OPC = Path.home() / ".opencode" / "bin" / "opencode"
@@ -34,6 +41,16 @@ RESULTS = ROOT / "benchmarks" / "v02" / "results"
 DEFAULT_MODEL = "cheaperinference/gpt-5.6-luna"
 TASK_TIMEOUT_S = 900
 WORKDIR = Path("/tmp/trellis-v02-trials")
+
+# Experiment 4 — stable-provider transparent reuse, pair-scoped health.
+# Frozen per REPORT.md gate decision after Experiment 3 (mid-run provider
+# degradation slipped past a single upfront preflight). Same tasks,
+# verifiers, tool surface, and timeout as Experiments 1/3 — only the
+# health-validity instrumentation changed. Do not edit task/verifier/
+# metric definitions inside this experiment id; cut a new id instead.
+EXPERIMENT_ID = "exp4-stable-provider"
+TARGET_VALID_PAIRS = 5
+MAX_PAIR_ATTEMPTS = 8
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -230,16 +247,20 @@ def run_agent(task_spec: str, repo: Path, model: str, condition: str) -> tuple[d
             timeout=TASK_TIMEOUT_S,
             env=cli_env(repo, store_path(repo)) | {"TRELLIS_MODE": "trellis" if condition == "B" else "baseline"},
         )
-        stdout, failed = proc.stdout, proc.returncode != 0
+        stdout, failed, timed_out = proc.stdout, proc.returncode != 0, False
     except subprocess.TimeoutExpired as exc:
         # Keep partial metrics: the JSON event stream up to the timeout
-        # is on the exception object.
+        # is on the exception object. Timeout is a distinct outcome from
+        # a crash/nonzero-exit failure — Sec 9.3: a timeout alone must
+        # not be conflated with provider-health invalidity or treated
+        # differently from any other treatment outcome.
         stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-        failed = True
+        failed, timed_out = True, True
     wall = time.time() - started
     metrics = parse_events(stdout)
     metrics["wall_clock_s"] = round(wall, 1)
     metrics["run_failed"] = failed
+    metrics["timed_out"] = timed_out
     ledger_after = ledger.read_text().splitlines() if ledger.exists() else []
     new_events = ledger_after[len(ledger_before):] if len(ledger_after) > len(ledger_before) else []
     metrics.update(parse_tool_ledger(new_events))
@@ -335,6 +356,8 @@ QUERY_ENVELOPE = (
 
 
 def run_trial(trial: int, model: str) -> list:
+    """Dev/wiring-check path only (used by --smoke). Not part of the
+    frozen Experiment 4 protocol — no pair-scoped health, no accrual."""
     rows = []
     order = ["A", "B"] if trial % 2 == 0 else ["B", "A"]
     for condition in order:
@@ -359,46 +382,194 @@ def run_trial(trial: int, model: str) -> list:
     return rows
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Experiment 4 — pair-scoped provider health + resumable accrual
+# ─────────────────────────────────────────────────────────────────────
+
+def git_head() -> str:
+    proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                           capture_output=True, text=True, timeout=10)
+    return proc.stdout.strip() if proc.returncode == 0 else "unknown"
+
+
+def condition_summary(rows: list) -> dict:
+    """ConditionResult aggregate over one condition's task rows. Fields
+    with no independent instrumentation on this transparent path (a
+    reuse serve is only made when pins are verified current against the
+    live tree, so stale/unknown serves are not separately observable —
+    see REPORT.md limitations) are None, never a fabricated 0."""
+    total = lambda k: sum(r.get(k, 0) for r in rows)
+    return {
+        "success_count": total("success"),
+        "timeout_count": total("timed_out"),
+        "wall_time_s": round(total("wall_clock_s"), 1),
+        "model_calls": total("model_calls"),
+        "input_tokens": total("input_tokens"),
+        "output_tokens": total("output_tokens"),
+        "provider_cached_tokens": total("cached_read_tokens") + total("cached_write_tokens"),
+        "logical_tool_calls": total("code_query_calls"),
+        "underlying_computations": total("served_fresh"),
+        "avoided_computations": total("avoided_underlying_computations"),
+        "file_reads": total("file_reads"),
+        "repository_searches": total("repo_searches"),
+        "shell_operations": total("shell_cmds"),
+        "automatic_captures": total("captured_now"),
+        "valid_reuse": total("avoided_underlying_computations"),
+        "stale_withholding": None,
+        "unknown_results": None,
+        "false_valid_reuse": None,
+        "trellis_runtime_time_s": round(total("tool_validation_us") / 1e6, 3),
+        "ceremony_calls": total("trellis_agent_ceremony_calls"),
+    }
+
+
+def run_pair_attempt(attempt_id: int, model: str) -> dict:
+    """One PairAttempt: pre-pair sentinel -> A/B pair -> post-pair
+    sentinel. Health validity is decided from the sentinels alone, never
+    from the A/B outcome (Sec 9). A pre-pair failure means the pair
+    never runs at all."""
+    order = ["A", "B"] if attempt_id % 2 == 0 else ["B", "A"]
+    attempt = {
+        "attempt_id": attempt_id,
+        "experiment_id": EXPERIMENT_ID,
+        "protocol_commit": git_head(),
+        "timestamp_utc": datetime_now_iso(),
+        "provider": model.split("/")[0],
+        "model": model,
+        "model_configuration": {"temperature": 0},
+        "order": order,
+    }
+
+    pre_gate = run_pair_sentinel(model)
+    pre_path = RESULTS / f"provider_health-pair{attempt_id}-pre.json"
+    attempt["pre_health"] = write_pair_report(pre_gate, model, attempt_id, "pre", pre_path)
+    print(f"  [pair {attempt_id}] pre-health: max={pre_gate['max_s']}s "
+          f"failures={pre_gate['failures']}/{pre_gate['probe_count']} "
+          f"gate={pre_gate['gate'].upper()}")
+
+    if pre_gate["gate"] != "pass":
+        valid, reason = classify_pair_health(pre_gate, None)
+        attempt.update(condition_a=None, condition_b=None, post_health=None,
+                        health_valid=valid, health_invalid_reason=reason)
+        return attempt
+
+    conditions = {}
+    for condition in order:
+        repo, store = fresh_condition_workspace(attempt_id, condition)
+        rows = []
+        for task in TASKS:
+            metrics = run_agent(task["spec"] + QUERY_ENVELOPE, repo, model, condition)
+            success = task["verify"](repo)
+            row = {
+                "trial": attempt_id,
+                "condition": condition,
+                "task": task["id"],
+                "success": success,
+                **metrics,
+            }
+            rows.append(row)
+            print(f"  [pair {attempt_id}] {condition} {task['id']}: "
+                  f"success={success} timed_out={metrics['timed_out']} "
+                  f"wall={metrics['wall_clock_s']}s in={metrics['input_tokens']} "
+                  f"(reuse={metrics['avoided_underlying_computations']} "
+                  f"ceremony={metrics['trellis_agent_ceremony_calls']})")
+        conditions[condition] = {"rows": rows, "summary": condition_summary(rows)}
+
+    post_gate = run_pair_sentinel(model)
+    post_path = RESULTS / f"provider_health-pair{attempt_id}-post.json"
+    attempt["post_health"] = write_pair_report(post_gate, model, attempt_id, "post", post_path)
+    print(f"  [pair {attempt_id}] post-health: max={post_gate['max_s']}s "
+          f"failures={post_gate['failures']}/{post_gate['probe_count']} "
+          f"gate={post_gate['gate'].upper()}")
+
+    valid, reason = classify_pair_health(pre_gate, post_gate)
+    attempt.update(condition_a=conditions["A"], condition_b=conditions["B"],
+                    health_valid=valid, health_invalid_reason=reason)
+    return attempt
+
+
+def should_continue(attempts: list) -> tuple[bool, str]:
+    """Pure accrual decision (Sec 10-11): stop on target reached, cap
+    exhausted, or the most recent attempt being health-invalid (must not
+    hammer a degraded provider — resume later under the same protocol)."""
+    valid = [a for a in attempts if a["health_valid"]]
+    if len(valid) >= TARGET_VALID_PAIRS:
+        return False, f"target reached: {len(valid)} health-valid pairs"
+    if attempts and not attempts[-1]["health_valid"]:
+        return False, (f"health-invalid pair (attempt {attempts[-1]['attempt_id']}): "
+                        f"{attempts[-1]['health_invalid_reason']} — stopping execution "
+                        f"window, resume later under the same frozen protocol")
+    if len(attempts) >= MAX_PAIR_ATTEMPTS:
+        return False, (f"max attempts ({MAX_PAIR_ATTEMPTS}) reached with only "
+                        f"{len(valid)}/{TARGET_VALID_PAIRS} valid pairs — provider/"
+                        f"environment unsuitable for this evidence block")
+    return True, "continue"
+
+
+def datetime_now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
+def run_experiment4(model: str) -> None:
+    pairs_path = RESULTS / f"pairs-{EXPERIMENT_ID}.json"
+    attempts = json.loads(pairs_path.read_text()) if pairs_path.exists() else []
+
+    while True:
+        keep_going, reason = should_continue(attempts)
+        if not keep_going:
+            print(f"STOP: {reason}")
+            break
+        next_id = len(attempts) + 1
+        print(f"=== pair attempt {next_id}/{MAX_PAIR_ATTEMPTS} "
+              f"(order {'A,B' if next_id % 2 == 0 else 'B,A'}) ===")
+        attempt = run_pair_attempt(next_id, model)
+        attempts.append(attempt)
+        # Checkpoint immediately: interruption must not lose prior pairs.
+        pairs_path.write_text(json.dumps(attempts, indent=2))
+        valid_n = sum(1 for a in attempts if a["health_valid"])
+        print(f"  pair {next_id} health_valid={attempt['health_valid']} "
+              f"reason={attempt['health_invalid_reason']} "
+              f"({valid_n}/{TARGET_VALID_PAIRS} valid so far) -> {pairs_path}")
+
+    valid_n = sum(1 for a in attempts if a["health_valid"])
+    print(f"Experiment 4 session end: {valid_n}/{TARGET_VALID_PAIRS} valid pairs "
+          f"across {len(attempts)} attempts. Raw: {pairs_path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--smoke", action="store_true",
-                        help="1 trial, T1+T2 only (wiring validation)")
+                        help="dev-only wiring check: 1 trial, T1+T2, single "
+                             "upfront preflight. NOT part of Experiment 4 — "
+                             "does not touch pairs-*.json.")
     args = parser.parse_args()
-    if args.smoke:
-        args.trials = 1
-    tasks = TASKS[:2] if args.smoke else TASKS
-    globals()["TASKS"][:] = tasks
 
     if not (ROOT / "target/debug/trellis").exists():
         raise SystemExit("build the CLI first: cargo build -p trellis-cli")
     WORKDIR.mkdir(parents=True, exist_ok=True)
     RESULTS.mkdir(parents=True, exist_ok=True)
-    suffix = "smoke" if args.smoke else f"n{args.trials}"
 
-    # Predeclared provider-health gate (ABLATION.md): abort cleanly
-    # before spending any benchmark runs on a degraded provider.
-    # Aborted runs are not Trellis trials.
-    health = evaluate_gate(run_probes(args.model))
-    health_path = RESULTS / f"provider_health-{suffix}.json"
-    write_report(health, args.model, health_path)
-    print(f"provider health: p50={health['p50_s']}s p95={health['p95_s']}s "
-          f"failures={health['failures']}/{health['probe_count']} "
-          f"gate={health['gate'].upper()} -> {health_path}")
-    if health["gate"] != "pass":
-        for err in health["failure_details"]:
-            print(f"  failure: {err}")
-        print("ABORTING benchmark: provider health gate failed (no trials started)")
-        sys.exit(2)
+    if args.smoke:
+        globals()["TASKS"][:] = TASKS[:2]
+        health = evaluate_gate(run_probes(args.model))
+        health_path = RESULTS / "provider_health-smoke.json"
+        write_report(health, args.model, health_path)
+        print(f"provider health: p50={health['p50_s']}s p95={health['p95_s']}s "
+              f"gate={health['gate'].upper()} -> {health_path}")
+        if health["gate"] != "pass":
+            print("ABORTING smoke check: provider health gate failed")
+            sys.exit(2)
+        out = RESULTS / "raw-smoke.json"
+        out.write_text(json.dumps(run_trial(1, args.model), indent=2))
+        print(f"raw rows -> {out}")
+        return
 
-    out = RESULTS / f"raw-{suffix}.json"
-    all_rows: list = []
-    for trial in range(1, args.trials + 1):
-        print(f"=== trial {trial} (order {'A,B' if trial % 2 == 0 else 'B,A'}) ===")
-        all_rows.extend(run_trial(trial, args.model))
-        out.write_text(json.dumps(all_rows, indent=2))
-    print(f"raw rows -> {out}")
+    # Experiment 4: no separate rehearsal, no standalone preflight. The
+    # first pre-pair sentinel below belongs to the first real pair.
+    run_experiment4(args.model)
+
 
 if __name__ == "__main__":
     main()

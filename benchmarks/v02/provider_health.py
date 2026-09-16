@@ -38,6 +38,13 @@ PROBE_TIMEOUT_S = 60
 P95_LIMIT_S = 15.0
 GATE_RULE = f"trivial-prompt p95 < {P95_LIMIT_S}s and 0 failures (N={PROBE_COUNT})"
 
+# Pair-scoped sentinel (Experiment 4): 3 probes before + 3 after each
+# real A/B pair, so mid-experiment degradation is caught, not just launch
+# conditions. At N=3, nearest-rank p95 is the max observation, so
+# evaluate_gate's existing p95 check already IS "every probe < 15s" here
+# without a separate percentile computation.
+PAIR_PROBE_COUNT = 3
+
 
 def run_probe(model: str, opc: Path = OPC, cwd: Path | None = None) -> dict:
     """One trivial fixed probe. Returns {ok, latency_s, error}."""
@@ -101,6 +108,42 @@ def write_report(gate_result: dict, model: str, path: Path) -> None:
               **gate_result}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, indent=2))
+
+
+def run_pair_sentinel(model: str, count: int = PAIR_PROBE_COUNT) -> dict:
+    """Pre/post-pair sentinel: same gate logic as the launch preflight,
+    smaller sample. Independent of pair outcome by construction — callers
+    must invoke this before inspecting any treatment metric."""
+    return evaluate_gate(run_probes(model, count))
+
+
+def write_pair_report(gate_result: dict, model: str, pair_attempt_id: int,
+                       position: str, path: Path) -> dict:
+    """position is 'pre' or 'post'. Returns the written report dict."""
+    report = {
+        "model": model,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "pair_attempt_id": pair_attempt_id,
+        "position": position,
+        **gate_result,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(report, indent=2))
+    return report
+
+
+PRE_PAIR_FAILURE = "PROVIDER_HEALTH_FAILED_BEFORE_PAIR"
+POST_PAIR_FAILURE = "PROVIDER_HEALTH_FAILED_AFTER_PAIR"
+
+
+def classify_pair_health(pre_gate: dict, post_gate: dict | None) -> tuple[bool, str | None]:
+    """Health validity from sentinels only — never from treatment outcome
+    (wall time, tokens, success). A task timeout is not evidence here."""
+    if pre_gate["gate"] != "pass":
+        return False, PRE_PAIR_FAILURE
+    if post_gate is None or post_gate["gate"] != "pass":
+        return False, POST_PAIR_FAILURE
+    return True, None
 
 
 def main() -> int:

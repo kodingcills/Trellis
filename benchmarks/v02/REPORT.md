@@ -7,7 +7,9 @@ Repository: `fixtures/python_auth/base` (35-file Python auth package, 18
 passing unittest tests) · Raw rows: `benchmarks/v02/results/raw-*.json`.
 Review status: independently audited (oracle, REVISIONS_REQUIRED); the
 corrections below are applied. Campaign status: **Experiment 3 recorded;
-held-out gate still pending a genuinely stable provider window.**
+Experiment 4 protocol frozen below, pair-scoped provider health added to
+catch the mid-run degradation that invalidated Experiment 3's cost
+comparison.**
 
 ## Question
 
@@ -203,6 +205,90 @@ or during the first transparent ablation. Next action when resuming:
 re-run this exact frozen experiment in a verified-stable window
 (preflight + mid-run provider spot-checks), before any held-out work.
 
+## Experiment 4 — pair-scoped provider health (protocol frozen 2026-09-16)
+
+Same tasks (T1-T5), verifiers, tool surface (`code_query` only, byte-
+identical schema across conditions), timeout (900s), and alternating
+A/B order as Experiments 1/3. Only the health-validity instrumentation
+changed, motivated directly by Experiment 3's failure mode: a single
+upfront preflight passed, then the provider degraded mid-run (19/50
+timeouts), making the condition-level cost comparison uninterpretable.
+
+**Protocol** (`run_trials.py::run_experiment4`, `provider_health.py`):
+
+```
+for each pair attempt (max 8):
+    pre-pair sentinel:  3 fixed probes, same model, repo-independent
+        prompt "Reply with exactly the word OK and nothing else."
+        gate: every probe succeeds AND every latency < 15s
+        (N=3 nearest-rank p95 == max, so this reuses the existing
+        evaluate_gate() check unmodified — no separate percentile math)
+    if pre-pair gate fails:
+        do not start the pair
+        record health_invalid_reason = PROVIDER_HEALTH_FAILED_BEFORE_PAIR
+        STOP this execution window (resume later, same protocol)
+    else:
+        run the real A/B pair (5 tasks each condition, order alternates
+        by attempt id, same as Experiments 1/3)
+        post-pair sentinel: same 3-probe gate
+        if post-pair gate fails:
+            keep all raw condition data
+            record health_invalid_reason = PROVIDER_HEALTH_FAILED_AFTER_PAIR
+            STOP this execution window
+        else:
+            pair is health_valid = true
+    checkpoint the full attempt list to
+        results/pairs-exp4-stable-provider.json after every attempt
+stop when: 5 health-valid pairs accrued, OR 8 attempts exhausted
+```
+
+Health validity is decided from the sentinels alone, never from wall
+time/token/success deltas (`classify_pair_health`, unit-tested). A task
+hitting the 900s timeout is a valid treatment outcome in either
+condition and does **not** by itself make a pair health-invalid
+(`timed_out` is tracked per task row, separate from provider health).
+
+**Data model**: each pair attempt is a `PairAttempt` record (attempt
+id, protocol commit, provider/model/config, order, pre/post health
+reports, per-condition `ConditionResult` summaries + raw per-task rows,
+health_valid, health_invalid_reason). `ConditionResult.stale_withholding`,
+`.unknown_results`, and `.false_valid_reuse` are recorded as `null`, not
+`0` — this integration's transparent path only ever serves a result
+after verifying its dependency pins are current against the live tree,
+so a stale/unknown serve is not independently observable as a distinct
+event on this path (raising `null` rather than fabricating `0` follows
+the same rule Trellis itself applies to incomplete coverage). The
+safety claim for this integration remains: 0 stale reuse and 0
+false-valid reuse observed across three prior experiments by
+construction of the pin check, audited manually, not by a per-run
+counter.
+
+**Analysis** (`analyze.py::analyze_pairs`): primary aggregate is over
+health-valid pairs only; health-invalid pairs are printed separately
+and never silently dropped from the raw file. Reports every paired
+diff (B-A) plus median/mean per metric (Sec 15), and per-task pass/fail
+discordance across valid pairs. No formal statistics beyond
+median/mean at n=5 — magnitude and consistency only.
+
+**Decision criteria** (frozen, Sec 16 of the v0.2 directive; unchanged
+by results): FAVORABLE requires >5% median wall-time improvement, ≥3/5
+pairs favoring Trellis, no systematic correctness regression, and zero
+false-valid reuse. COST-NEUTRAL requires median wall-clock within ±5%
+and at least two of {model calls, input tokens, repo ops, underlying
+computations} favoring Trellis, same correctness/safety bars. Anything
+short of these, or a >5% regression with ≥3/5 pairs favoring Fresh, is
+GENUINELY NEGATIVE; anything else is MIXED/INCONCLUSIVE. This section
+was written and committed before any Experiment 4 pair was run.
+
+Protocol commit: see git history at the commit introducing this
+section (`bench(v02): freeze pair-scoped provider health protocol`).
+Tests: `test_provider_health.py`, `test_run_trials.py`, `test_analyze.py`.
+
+### Results
+
+*(pending — filled in after the accrual run completes or exhausts the
+8-attempt cap; see `results/pairs-exp4-stable-provider.json`)*
+
 ## Limitations
 
 - n=5 paired trials; all success-rate figures are within noise. The
@@ -243,9 +329,15 @@ re-run this exact frozen experiment in a verified-stable window
   preflight (gate + unit tests in `test_provider_health.py`).
 - `benchmarks/v02/analyze.py` — aggregation (ledger de-cumulation added
   post-review).
-- `benchmarks/v02/results/raw-*.json` — raw rows for all experiments.
+- `benchmarks/v02/results/raw-*.json` — raw rows for Experiments 1-3.
+- `benchmarks/v02/results/pairs-exp4-stable-provider.json` — Experiment
+  4 PairAttempt records (immutable, checkpointed per attempt).
 - `benchmarks/v02/results/provider_health-*.json` — preflight probe
-  reports (why a run proceeded or aborted).
+  reports (why a run proceeded or aborted); `-pair<N>-pre/post.json`
+  are Experiment 4's pair-scoped sentinels.
+- `benchmarks/v02/test_provider_health.py`, `test_run_trials.py`,
+  `test_analyze.py` — health-classification, accrual, and
+  inclusion/exclusion regression tests (no live provider).
 - `benchmarks/v02/demo_reuse.sh` — agent-driven publish + deterministic
   CLI stale-withholding smoke test (PASS; the stale-rejection assertion
   is CLI-level, not agent-level).
