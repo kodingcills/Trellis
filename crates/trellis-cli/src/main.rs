@@ -1,5 +1,5 @@
 //! trellis-cli — thin JSON command surface over the v0.1 runtime for
-//! coding-agent adapters (v0.2, .agent/V0_2.md Phase 1).
+//! coding-agent adapters (v0.2).
 //!
 //! The CLI is glue, not a new runtime: every subcommand delegates to the
 //! existing engine/store/program crates. Fresh semantic queries use a

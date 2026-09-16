@@ -66,5 +66,5 @@ the fixture source contains no Trellis-specific annotations.
 
 If a label here ever conflicts with what the Trellis implementation
 produces, the label wins until a human reviews the discrepancy. Labels
-are never edited to match implementation output; that is a BLOCKER
-(`.agent/QUALITY_GATES.yaml → REPAIR_POLICY.never`).
+are never edited to match implementation output; that is never an
+acceptable repair.
