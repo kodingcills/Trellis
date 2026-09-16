@@ -1,0 +1,64 @@
+{
+  "model": "cheaperinference/gpt-5.6-luna",
+  "timestamp_utc": "2026-09-16T10:31:34.834514+00:00",
+  "probe_count": 10,
+  "probes": [
+    {
+      "ok": true,
+      "latency_s": 5.56,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 6.23,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 5.31,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 5.18,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 9.29,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 6.37,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 6.29,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 9.12,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 11.23,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_s": 7.54,
+      "error": null
+    }
+  ],
+  "p50_s": 6.29,
+  "p95_s": 11.23,
+  "max_s": 11.23,
+  "failures": 0,
+  "failure_details": [],
+  "gate": "pass",
+  "gate_rule": "trivial-prompt p95 < 15.0s and 0 failures (N=10)"
+}

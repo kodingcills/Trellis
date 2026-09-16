@@ -1,12 +1,13 @@
 # Trellis v0.2 Benchmark Report — Real-Agent Reuse Experiment
 
-Date: 2026-09-15 · Model: `cheaperinference/gpt-5.6-luna` (temperature 0) ·
+Date: 2026-09-15 (Exp 1) / 2026-09-16 (Exp 3) · Model:
+`cheaperinference/gpt-5.6-luna` (temperature 0) ·
 Harness: OpenCode 1.18.29 headless (`opencode run --auto --format json`) ·
 Repository: `fixtures/python_auth/base` (35-file Python auth package, 18
 passing unittest tests) · Raw rows: `benchmarks/v02/results/raw-*.json`.
 Review status: independently audited (oracle, REVISIONS_REQUIRED); the
-corrections below are applied. Campaign status: **paused before the
-external-validity (OSS) gate**.
+corrections below are applied. Campaign status: **Experiment 3 recorded;
+held-out gate still pending a genuinely stable provider window.**
 
 ## Question
 
@@ -107,6 +108,101 @@ Against the campaign's kill conditions: the supported finding is
 problem, not evidence that validation or reuse is intrinsically
 valueless. We report it rather than tune the benchmark.
 
+## Experiment 3 — clean transparent rerun (2026-09-16, n=50 task-runs)
+
+Protocol identical to the first transparent ablation (commit 273529b
+surface; five tasks, verifiers, 900s timeout, alternating order, 5
+paired trials). No task, tool, prompt, or analysis definition was
+altered. Raw: `results/raw-n5.json`. One change to the harness only:
+per-trial checkpointing of raw rows, plus a predeclared provider-health
+preflight (`provider_health.py`, gate: trivial-prompt p95 < 15s, 0
+failures, N=10) that aborts before any trial if the provider is
+degraded; aborted runs are not trials. Probe reports:
+`results/provider_health-*.json`.
+
+**Validity warning: the provider degraded mid-experiment again.** The
+preflight passed at launch (p50 5.0s, p95 6.0s, 10/10 probes) and
+conditions were equally exposed, but timeouts recurred throughout:
+19/50 runs hit the 900s cap (A 7, B 12), concentrated in T2–T5 late in
+trials. Timeout counts by task: T1 0/10, T2 7/10, T3 5/10, T4 4/10,
+T5 3/10. Condition-level wall-clock and success totals are therefore
+**not interpretable as a Trellis effect**; the decomposition below is
+the honest reading.
+
+### Headline (unadjusted — polluted, shown for completeness)
+
+| metric | A baseline | B trellis |
+|---|---|---|
+| task success | 16/25 (64%) | 12/25 (48%) |
+| wall clock mean/task | 357.7s | 600.9s |
+| 900s timeouts | 7/25 | 12/25 |
+| ceremony calls | 0 | 0 |
+
+### Decomposition (timeout-polluted runs excluded where stated)
+
+On the 31 healthy runs (A 16, B 15):
+
+| paired metric (B−A per trial) | diffs | median | mean |
+|---|---|---|---|
+| wall clock (healthy only) | +131, −120, +644, −199, −572 | −120s | −23s |
+| input tokens (healthy only) | +36k, −117k, +11k, −187k, −453k | −117k | −142k |
+| model calls (healthy only) | +17, −19, −4, −30, −45 | −19 | −16.2 |
+| success (healthy only) | 0, −1, 0, −1, −3 | −1 | −1.0 |
+
+On all 50 runs (for the record): input tokens B−A negative in 5/5
+trials (median −83k), model calls median −14, tool ops median −29,
+file reads median −11.
+
+Mechanism metrics (clean, provider-independent):
+
+- ceremony calls: **0/25** in B (gate met by construction and observation)
+- 34 auto-captures, **11 avoided underlying computations** (trial
+  distribution: T5 5, T3 2, T1 1 across trials; 8/11 in T3+T5, the
+  cross-task-coupled tasks — consistent with Exp 1 and the first
+  transparent ablation)
+- 0 stale reuses, 0 false-valid reuse observed
+- Trellis tool-path time 1.97s total across 64 logical calls in B
+  (~31ms/call); A pays the same fresh-compute cost inside its identical
+  tool
+
+### Honest reading
+
+1. **Timeout asymmetry (12 vs 7) is the dominant signal in the raw
+   table and it is not attributable to Trellis by construction** — the
+   only condition difference is whether the store persists, and the
+   tool surface is byte-identical. But we cannot rule out that B's
+   marginally different run trajectories (e.g. fewer fresh recomputes →
+   different context growth) interact with provider latency variance.
+   At n=5 trials this asymmetry is within noise; we report it rather
+   than explain it away.
+2. **Where runs completed, Trellis was never more expensive at the
+   trial level on work metrics**: median −19 model calls, −117k input
+   tokens, −120s wall per trial on healthy runs. The healthy wall
+   median is negative but the mean is ≈0 (trial 3's +644s outlier);
+   the honest claim is cost-neutral-to-slightly-favorable, not a
+   demonstrated win.
+3. **The success asymmetry on healthy runs (paired −1/trial) tracks the
+   timeout asymmetry**: B's failed-but-not-timed-out rows include the
+   trial-5 T5 audit task where B timed out in 3/5 trials and A in 0.
+   With success deltas this size at n=5, no correctness claim is
+   supported in either direction.
+4. **Reuse remains real, transparent, and safe**: 11 avoided
+   computations, concentrated in coupled tasks, zero false-valid.
+   Reuse density 11/64 ≈ 17% of logical calls.
+
+### Gate decision
+
+The predeclared gate for proceeding to the held-out chain was "clean
+cost evidence under stable provider conditions." This run did not
+achieve it: 38% timeout rate despite a passing preflight. The mechanism
+questions (ceremony elimination, reuse preservation, zero false-valid)
+are now answered three times consistently across experiments. What
+remains unmeasured is the economic question, and that requires a
+provider window substantially more stable than anything observed today
+or during the first transparent ablation. Next action when resuming:
+re-run this exact frozen experiment in a verified-stable window
+(preflight + mid-run provider spot-checks), before any held-out work.
+
 ## Limitations
 
 - n=5 paired trials; all success-rate figures are within noise. The
@@ -141,10 +237,15 @@ valueless. We report it rather than tune the benchmark.
 
 ## Artifacts
 
-- `benchmarks/v02/run_trials.py` — harness (paired protocol, verifiers).
+- `benchmarks/v02/run_trials.py` — harness (paired protocol, verifiers,
+  preflight gate, per-trial checkpointing).
+- `benchmarks/v02/provider_health.py` — predeclared provider-health
+  preflight (gate + unit tests in `test_provider_health.py`).
 - `benchmarks/v02/analyze.py` — aggregation (ledger de-cumulation added
   post-review).
-- `benchmarks/v02/results/raw-*.json` — raw rows for all four runs.
+- `benchmarks/v02/results/raw-*.json` — raw rows for all experiments.
+- `benchmarks/v02/results/provider_health-*.json` — preflight probe
+  reports (why a run proceeded or aborted).
 - `benchmarks/v02/demo_reuse.sh` — agent-driven publish + deterministic
   CLI stale-withholding smoke test (PASS; the stale-rejection assertion
   is CLI-level, not agent-level).

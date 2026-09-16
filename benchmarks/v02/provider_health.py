@@ -30,7 +30,10 @@ OPC = Path.home() / ".opencode" / "bin" / "opencode"
 RESULTS = Path(__file__).resolve().parent / "results"
 
 PROBE_PROMPT = "Reply with exactly the word OK and nothing else."
-PROBE_COUNT = 6
+# 10 probes (upper end of the 5-10 range): with nearest-rank percentiles
+# p95 is effectively the max at this sample size, so intermittent spikes
+# reliably fail the gate instead of slipping through a lucky window.
+PROBE_COUNT = 10
 PROBE_TIMEOUT_S = 60
 P95_LIMIT_S = 15.0
 GATE_RULE = f"trivial-prompt p95 < {P95_LIMIT_S}s and 0 failures (N={PROBE_COUNT})"
